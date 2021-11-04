@@ -15,14 +15,14 @@
 
 
 //GLOBAL CONSTANTS
-#define BLOCK_SIZE 512
-#define ISIZE 32
+#define BLOCK_SIZE 512		 // * 1024
+#define ISIZE 32		 // * 64
 #define inode_alloc 0100000        //Flag value to allocate an inode
 #define pfile 000000               //To define file as a plain file
 #define lfile 010000               //To define file as a large file
 #define directory 040000           //To define file as a Directory
 #define max_array 256
-#define null_size 512
+#define null_size 512		// * check where it's getting used
 
 
 //GLOBAL VARIABLES
@@ -38,13 +38,13 @@ typedef struct {
 unsigned short isize;
 unsigned short fsize;
 unsigned short nfree;
-unsigned short free[100];
-unsigned short ninode;
-unsigned short inode[100];
+unsigned short free[100]; // * 251 length
+unsigned short ninode;	  // * need to remove
+unsigned short inode[100];	// * need to remove
 char flock;
 char ilock;
 char fmod;
-unsigned short time[2];
+unsigned short time[2]; 	// * only unsigned int
 } fs_super;//instance of superblock
 fs_super super;
 
@@ -53,22 +53,22 @@ fs_super super;
 
 typedef struct {
 unsigned short flags;
-char nlinks;
-char uid;
-char gid;
-char size0;
-unsigned short size1;
-unsigned short addr[8];
-unsigned short actime[2];
-unsigned short modtime[2];
+char nlinks;		// * unsigned short
+char uid;   // --> * unsigned int
+char gid;  // --> * unsigned int
+char size0;  // * --> unsigned int
+unsigned short size1;    // * --> unsigned int
+unsigned short addr[8];		// * size is 9   --> unsigned int
+unsigned short actime[2];	// * not an array --> unsigned int
+unsigned short modtime[2];	// * not an array --> unsigned int
 } fs_inode; 
 fs_inode initial_inode;/
 
 // directory
 typedef struct 
 {
-        unsigned short inode;
-        char filename[13];
+        unsigned short inode;	// * unsigned int
+        char filename[13];     // * size is 28
         }dir;
 dir newdir;		
 dir dir1;   //for duplicates
@@ -301,7 +301,10 @@ void read_block(unsigned short *dest, unsigned short bno)
 
 	else
 		{			
-		lseek(fd,bno*BLOCK_SIZE,SEEK_SET);
+		lseek(fd,bno*
+		      
+		      
+		      ,SEEK_SET);
 		read(fd, dest, BLOCK_SIZE);
 		}
 	}
