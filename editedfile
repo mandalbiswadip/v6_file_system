@@ -236,8 +236,8 @@ int initializefs(char* path, unsigned short total_blocks,unsigned short total_in
 	super.flock = 'f'; 					
 	super.ilock = 'i';					
 	super.fmod = 'f';
-	super.time[0] = 0000;  //------------
-	super.time[1] = 1970;  //----------
+	super.time = 0000;  //------------
+	//super.time[1] = 1970;  //----------
 	lseek(fd,BLOCK_SIZE,SEEK_SET);
 	//#lseek(fd,0,SEEK_SET);
 	//#write(fd, &super, 1024);// write 1025 byte from &super to fd
@@ -376,7 +376,7 @@ int main(int argc, char *argv[])
 	char *cmd1 = (char *)malloc(sizeof(char) * 200);
 	signal(SIGINT, SIG_IGN);
 	int fs_initcheck = 0;    // bit to check if file system is initialized
-	char *parser, cmd[256];
+	char *parser, cmd[512];  //changed from 256 to 512
 	unsigned short n = 0, j , k;
 	char buffer1[BLOCK_SIZE];
 	unsigned short num_bytes;
