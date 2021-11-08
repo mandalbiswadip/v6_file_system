@@ -11,6 +11,9 @@
 *.gch
 *.pch
 
+# my files
+V6file_systems_final.c
+
 # Compiled Dynamic libraries
 *.so
 *.dylib
