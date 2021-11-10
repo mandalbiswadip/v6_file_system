@@ -26,8 +26,6 @@
 
 //GLOBAL VARIABLES
 int fd;
-int rootfd;
-const char *rootname;
 unsigned short chainarray[max_array];
 
 // super block
@@ -74,21 +72,18 @@ dirc dir1; //for duplicates
 //nums of inodes, NUM is the number of files of this file system
 //struct inode g_usedinode[NUM];
 
-//in order
-
-void chainblocks(unsigned short total_blocks);
-void chaining_blocks(unsigned int total_blocks, unsigned int inode_count);
-void rootdir();
-int initializefs(char *path, unsigned int total_blocks, unsigned int total_inodes);
-unsigned short allocatefreedblock();
-
+void chaining_blocks(unsigned int total_blocks, unsigned int inode_block_count);
+void create_root_dir();
+int initializefs(char *path, unsigned int total_blocks, unsigned int total_inodes_blocks);
+unsigned int allocatefreedblock();
 void read_block(unsigned short *dest, unsigned short bno);
 void write_block(unsigned short *dest, unsigned short bno);
-void copy_inode(fs_inode current_inode, unsigned int new_inode);
+void write_inode(fs_inode current_inode, unsigned int inode_index);
 
+//in order
 
 // Data blocks chaining procedure
-void chaining_blocks(unsigned int total_blocks, unsigned int inode_count)
+void chaining_blocks(unsigned int total_blocks, unsigned int inode_block_count)
 {
     unsigned int free_block_numbers[FREE_BLOCKS + 1];
 
@@ -98,21 +93,32 @@ void chaining_blocks(unsigned int total_blocks, unsigned int inode_count)
 
     unsigned int data_block_chunk_index;
 
-    unsigned int data_blocks_count = (total_blocks - inode_count - 2);
+    unsigned int data_blocks_count = (total_blocks - inode_block_count - 2);
 
     unsigned int split_blocks =  data_blocks_count / FREE_BLOCKS;           //TODO check 
     unsigned short extra_blocks = data_blocks_count % FREE_BLOCKS;
     unsigned short idx = 0;
+
+    lseek(fd, total_blocks * BLOCK_SIZE -1, SEEK_SET);
+    write(fd, 0, 1);
+
     int i = 0;
     for (idx = 0; idx <= FREE_BLOCKS; idx++)
     {
         emptybuffer[idx] = 0;
         free_block_numbers[idx] = 0;
         chainarray[idx] = 0;
+        
+        if (idx < FREE_BLOCKS){
+            super.free[super.nfree] = idx + 2 + inode_block_count + 1;
+            ++super.nfree;
+        }
     }
+    printf("free array first number %d\n", super.free[0]);
 
     for (data_block_chunk_index = 0 ; data_block_chunk_index < split_blocks; data_block_chunk_index ++){
 
+        printf("data_block_chunk_index: %d\n", data_block_chunk_index);
         free_block_numbers[0] = FREE_BLOCKS;
 
         // get the block where the next free block addresses will be stored
@@ -120,15 +126,17 @@ void chaining_blocks(unsigned int total_blocks, unsigned int inode_count)
         if (extra_blocks == 0 && data_block_chunk_index == split_blocks - 1){
             free_block_numbers[1] = 0 ;                 
         }else{
-            free_block_numbers[1] = inode_count + 2 + (data_block_chunk_index + 1) * FREE_BLOCKS ;
+            free_block_numbers[1] = inode_block_count + 2 + (data_block_chunk_index + 1) * FREE_BLOCKS ;
         }
+        
+        
         for (i = 2; i < FREE_BLOCKS + 1; i++){
-            free_block_numbers[i] = inode_count + 2 + data_block_chunk_index * FREE_BLOCKS + i - 1; 
+            free_block_numbers[i] = inode_block_count + 2 + data_block_chunk_index * FREE_BLOCKS + i; 
         }
 
         // free_block_numbers is of size 1008 bytes. write this to the data_block_chunk_index-th block
 
-        write_block(free_block_numbers, inode_count + 2 + data_block_chunk_index * FREE_BLOCKS);
+        write_block(free_block_numbers, inode_block_count + 2 + data_block_chunk_index * FREE_BLOCKS);
     }
 
 
@@ -136,7 +144,7 @@ void chaining_blocks(unsigned int total_blocks, unsigned int inode_count)
 
     if (extra_blocks > 0){
         free_block_numbers[0] = extra_blocks;
-        lseek(fd, (inode_count + 2 + data_block_chunk_index * FREE_BLOCKS) * BLOCK_SIZE , SEEK_SET);
+        lseek(fd, (inode_block_count + 2 + data_block_chunk_index * FREE_BLOCKS) * BLOCK_SIZE , SEEK_SET);
         write(fd, extra_blocks, 4);
 
         lseek(fd, 4, SEEK_CUR);
@@ -144,20 +152,18 @@ void chaining_blocks(unsigned int total_blocks, unsigned int inode_count)
 
         for (i = 2 ; i < extra_blocks; i++){
             lseek(fd, 4 , SEEK_CUR);
-            write(fd, inode_count + 2 + data_block_chunk_index * FREE_BLOCKS + i - 1 , 4 );
-        }   
+            write(fd, inode_block_count + 2 + data_block_chunk_index * FREE_BLOCKS + i - 1 , 4 );
+        }
+        printf("last byte %d\n", inode_block_count + 2 + data_block_chunk_index * FREE_BLOCKS + i - 1);   
     }
 }
 
 //create root directory and inode.
-void rootdir()
+void create_root_dir()
 {
-    rootname = "root";
-    rootfd = creat(rootname, 0600);
-    rootfd = open(rootname, O_RDWR | O_APPEND);
     unsigned int i = 0;
     unsigned short num_bytes;
-    unsigned short dblock = allocatefreedblock();
+    unsigned int dblock = allocatefreedblock();
 
     for (i = 0; i < 28; i++)
         newdir.filename[i] = 0;
@@ -167,11 +173,11 @@ void rootdir()
     newdir.inode = 1; // root directory's inode number is 1.
 
     initial_inode.flags = inode_alloc | directory | 000077;
-    initial_inode.nlinks = 2;
-    initial_inode.uid = '0';
-    initial_inode.gid = '0';
-    initial_inode.size0 = '0';
-    initial_inode.size1 = INODE_SIZE;
+    initial_inode.nlinks = 1;
+    initial_inode.uid = 0;
+    initial_inode.gid = 0;
+    initial_inode.size0 = 0;
+    initial_inode.size1 = 0;
     initial_inode.addr[0] = dblock;
 
     for (i = 1; i < 9; i++)
@@ -181,13 +187,13 @@ void rootdir()
     //initial_inode.modtime[0] = 0;
     initial_inode.modtime = 0;
 
-    copy_inode(initial_inode, 0);
-    lseek(rootfd, 1024, SEEK_SET);
-    write(rootfd, &initial_inode, 64);
-    lseek(rootfd, dblock * BLOCK_SIZE, SEEK_SET);
+    // write_inode(initial_inode, 0);
+    lseek(fd, BLOCK_SIZE * 2, SEEK_SET);
+    write(fd, &initial_inode, 64);
+    lseek(fd, dblock * BLOCK_SIZE, SEEK_SET);
 
     //filling 1st entry with .
-    num_bytes = write(rootfd, &newdir, 16);
+    num_bytes = write(fd, &newdir, 16);
     if ((num_bytes) < 16)
         printf("\n Error in writing root directory \n ");
 
@@ -195,22 +201,20 @@ void rootdir()
     newdir.filename[0] = '.';
     newdir.filename[1] = '.';
     newdir.filename[2] = '\0';
-    num_bytes = write(rootfd, &newdir, 16);
+    num_bytes = write(fd, &newdir, 16);
     if ((num_bytes) < 16)
         printf("\n Error in writing root directory\n ");
-    close(rootfd);
 }
 
 // file system initilization
-int initializefs(char *path, unsigned int total_blocks, unsigned int total_inodes)
+int initializefs(char *path, unsigned int total_blocks, unsigned int total_inodes_blocks)
 {
+
+    unsigned int total_inodes = total_inodes_blocks * BLOCK_SIZE / INODE_SIZE ;
     printf("\nV6 File System by Biswadip, Yangru and Shejo\n");
     char buffer[BLOCK_SIZE];
     int num_bytes;
-    if (((total_inodes * INODE_SIZE) % BLOCK_SIZE) == 0)          //the inode is 64 byte long so each block contains 16 inode
-        super.isize = ((total_inodes * INODE_SIZE) / BLOCK_SIZE); //number of inode
-    else
-        super.isize = ((total_inodes * INODE_SIZE) / BLOCK_SIZE) + 1;
+    super.isize = total_inodes_blocks; //number of inode
 
     super.fsize = total_blocks;
 
@@ -227,9 +231,9 @@ int initializefs(char *path, unsigned int total_blocks, unsigned int total_inode
 
     super.nfree = 0; //number of free block
 
-    super.flock = 'f';
-    super.ilock = 'i';
-    super.fmod = 'f';
+    super.flock = 'm';
+    super.ilock = 'y';
+    super.fmod = 'b';
     super.time = 0000; //------------
     lseek(fd, BLOCK_SIZE, SEEK_SET);
     //#lseek(fd,0,SEEK_SET);
@@ -244,7 +248,7 @@ int initializefs(char *path, unsigned int total_blocks, unsigned int total_inode
     for (i = 0; i < BLOCK_SIZE; i++)
         buffer[i] = 0;
 
-
+    printf("Inode count : %d\n", super.isize);
     for (i = 0; i < super.isize; i++)
         lseek(fd, (i + 2 ) * 1024, SEEK_SET);   //reposition read/write file offset i*1024 byte from the start of file
         write(fd, buffer, BLOCK_SIZE);          //write zero to all inode
@@ -253,20 +257,15 @@ int initializefs(char *path, unsigned int total_blocks, unsigned int total_inode
     // chainblocks(total_blocks);
     chaining_blocks(total_blocks, super.isize);
 
-    for (i = 0; i < FREE_BLOCKS; i++)
-    {
-        super.free[super.nfree] = i + 2 + super.isize; //get free block
-        ++super.nfree;
-    }
 
-    rootdir();
+    create_root_dir();
     return 1;
 }
 
 // get a free data block.&&
-unsigned short allocatefreedblock()
+unsigned int allocatefreedblock()
 {
-    unsigned short block;
+    unsigned int block;
     block = super.free[--super.nfree];
     super.free[super.nfree] = 0;
 
@@ -318,14 +317,14 @@ void write_block(unsigned short *dest, unsigned short bno)
 }
 
 //Write to an inode given the inode number	&&
-void copy_inode(fs_inode current_inode, unsigned int new_inode)
+void write_inode(fs_inode current_inode, unsigned int inode_index)
 {
     int num_bytes;
-    lseek(fd, 2 * BLOCK_SIZE + new_inode * INODE_SIZE, 0);
+    lseek(fd, 2 * BLOCK_SIZE + inode_index * INODE_SIZE, 0);
     num_bytes = write(fd, &current_inode, INODE_SIZE);
 
     if ((num_bytes) < INODE_SIZE)
-        printf("\n Error in inode number : %d\n", new_inode);
+        printf("\n Error in inode number : %d\n", inode_index);
 }
 
 //free data blocks and initialize free array
@@ -422,6 +421,7 @@ int main(int argc, char *argv[])
         else if (strcmp(parser, "q") == 0)
         {
             printf("Exiting the program");
+            close(fd);
             exit(0);
         }
     }
