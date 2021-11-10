@@ -114,7 +114,7 @@ void chaining_blocks(unsigned int total_blocks, unsigned int inode_block_count)
             ++super.nfree;
         }
     }
-    printf("free array first number %d\n", super.free[0]);
+    printf("First free block number %d\n", super.free[0]);
 
     for (data_block_chunk_index = 0 ; data_block_chunk_index < split_blocks; data_block_chunk_index ++){
 
