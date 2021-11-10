@@ -1,4 +1,4 @@
-/* Author: Mandal Biswadip, Matheew Shejo, Yangru Zhou
+/* Author: Mandal Biswadip, Mathew Shejo, Yangru Zhou
 * CS 5348.001 Operating Systems
 ******************/
 #include <stdio.h>
@@ -94,7 +94,7 @@ void v6_file_blocks(unsigned int block_nums, unsigned int inode_count)
 
     unsigned int numdata_blocks = (block_nums - inode_count - 2);
 
-    unsigned int split_blocks =  numdata_blocks / FREE_BLOCKS;           //TODO check 
+    unsigned int split_blocks =  numdata_blocks / FREE_BLOCKS;           
     unsigned short extra_blocks = numdata_blocks % FREE_BLOCKS;
     unsigned short idx = 0;
 
@@ -230,10 +230,8 @@ int initfs(char *path, unsigned int block_nums, unsigned int inode_nums_blocks)
     super.flock = 'm';
     super.ilock = 'y';
     super.fmod = 'b';
-    super.time = 0000; //------------
+    super.time = 0000; 
     lseek(fd, BLOCK_SIZE, SEEK_SET);
-    //#lseek(fd,0,SEEK_SET);
-    //#write(fd, &super, 1024);// write 1025 byte from &super to fd
 
     if ((num_bytes = write(fd, &super, BLOCK_SIZE)) < BLOCK_SIZE)
     {
@@ -275,7 +273,7 @@ unsigned int alloc_block()
     return block;
 }
 
-//Read integer array from the required block&&
+//Read integer array from the required block
 void read_block(unsigned short *dest, unsigned short bno)
 {
     int flag = 0;
@@ -311,7 +309,7 @@ void write_block(unsigned short *dest, unsigned short bno)
     }
 }
 
-//Write to an inode given the inode number	&&
+//Write to an inode given the inode number	
 void write_inode(inode_type current_inode, unsigned int inode_index)
 {
     int num_bytes;
@@ -394,7 +392,6 @@ int main(int argc, char *argv[])
         }
         else if (strcmp(parser, "openfs") == 0)
         {
-            // file_path = strtok(NULL, " "); //read the second breaked tokens
             strcpy(file_path, strtok(NULL, " "));
             printf("%s", file_path);
         }
