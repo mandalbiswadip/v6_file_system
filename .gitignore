@@ -13,6 +13,10 @@
 
 # my files
 V6file_systems_final.c
+.DS_Store
+.vscode/
+test
+test.c
 
 # Compiled Dynamic libraries
 *.so

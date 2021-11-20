@@ -13,7 +13,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 
-//GLOBAL CONSTANTS
+// CONSTANTS
 #define BLOCK_SIZE 1024
 #define INODE_SIZE 64
 #define inode_alloc 0100000 //Flag value to allocate an inode
@@ -23,62 +23,53 @@
 #define max_array 512
 #define null_size 1024 // * check where it's getting used
 #define FREE_BLOCKS 251
+#define DIRECTORY_SIZE 32
 
-//GLOBAL VARIABLES
-int fd;
-unsigned short chainarray[max_array];
+// VARIABLES
+int file_handle;
+unsigned short block_number_tracker[max_array];
 
 // super block
-typedef struct
-{
-    unsigned int isize;
-    unsigned int fsize;
-    unsigned int nfree;
-    unsigned int free[FREE_BLOCKS];
-    //unsigned short ninode;	  // * need to remove
-    //unsigned short inode[100];	// * need to remove
-    char flock;
-    char ilock;
-    char fmod;
-    unsigned int time; // * only unsigned int
-} fs_super;            //instance of superblock
-fs_super super;
+typedef struct {
+int isize;
+int fsize;
+int nfree;
+unsigned int free[251]; char flock;
+char ilock;
+char fmod; unsigned int time;
+} superblock_type;
+superblock_type super;
 
-//inode
-
-typedef struct
-{
-    unsigned short flags;
-    unsigned short nlinks;
-    unsigned int uid;
-    unsigned int gid;
-    unsigned int size0;
-    unsigned int size1;
-    unsigned int addr[9];
-    unsigned int actime;
-    unsigned int modtime;
-} fs_inode;
-fs_inode initial_inode;
+// inode 
+typedef struct {
+unsigned short flags;
+unsigned short nlinks;
+unsigned int uid;
+unsigned int gid;
+unsigned int size0;
+unsigned int size1;
+unsigned int addr[9];
+unsigned int actime;
+unsigned int modtime;
+} inode_type;
+inode_type first_inode;
 
 // directory
-typedef struct
-{
-    unsigned int inode;
+typedef struct { 
+    unsigned int inode; 
     char filename[28];
-} dirc;
-dirc newdir;
-dirc dir1; //for duplicates
+} dir_type;
 
-//nums of inodes, NUM is the number of files of this file system
-//struct inode g_usedinode[NUM];
+dir_type new_directory;
+
 
 void chaining_blocks(unsigned int total_blocks, unsigned int inode_block_count);
 void create_root_dir();
-int initializefs(char *path, unsigned int total_blocks, unsigned int total_inodes_blocks);
-unsigned int allocatefreedblock();
+int initialize_file_system(char *path, unsigned int total_blocks, unsigned int total_inodes_blocks);
+unsigned int get_free_block();
 void read_block(unsigned short *dest, unsigned short bno);
-void write_block(unsigned short *dest, unsigned short bno);
-void write_inode(fs_inode current_inode, unsigned int inode_index);
+void write_block(unsigned int *dest, unsigned int bno);
+void write_inode(inode_type current_inode, unsigned int inode_index);
 
 //in order
 
@@ -99,26 +90,26 @@ void chaining_blocks(unsigned int total_blocks, unsigned int inode_block_count)
     unsigned short extra_blocks = data_blocks_count % FREE_BLOCKS;
     unsigned short idx = 0;
 
-    lseek(fd, total_blocks * BLOCK_SIZE -1, SEEK_SET);
-    write(fd, 0, 1);
+    lseek(file_handle, total_blocks * BLOCK_SIZE -1, SEEK_SET);
+    write(file_handle, 0, 1);
 
     int i = 0;
     for (idx = 0; idx <= FREE_BLOCKS; idx++)
     {
         emptybuffer[idx] = 0;
         free_block_numbers[idx] = 0;
-        chainarray[idx] = 0;
+        block_number_tracker[idx] = 0;
         
+        // free block numbers in free array
         if (idx < FREE_BLOCKS){
-            super.free[super.nfree] = idx + 2 + inode_block_count + 1;
+            super.free[super.nfree] = idx + 2 + inode_block_count;
             ++super.nfree;
         }
     }
-    printf("First free block number %d\n", super.free[0]);
+    super.free[0] = 2 + inode_block_count + FREE_BLOCKS;
 
     for (data_block_chunk_index = 0 ; data_block_chunk_index < split_blocks; data_block_chunk_index ++){
 
-        printf("data_block_chunk_index: %d\n", data_block_chunk_index);
         free_block_numbers[0] = FREE_BLOCKS;
 
         // get the block where the next free block addresses will be stored
@@ -144,74 +135,78 @@ void chaining_blocks(unsigned int total_blocks, unsigned int inode_block_count)
 
     if (extra_blocks > 0){
         free_block_numbers[0] = extra_blocks;
-        lseek(fd, (inode_block_count + 2 + data_block_chunk_index * FREE_BLOCKS) * BLOCK_SIZE , SEEK_SET);
-        write(fd, extra_blocks, 4);
+        lseek(file_handle, (inode_block_count + 2 + data_block_chunk_index * FREE_BLOCKS) * BLOCK_SIZE , SEEK_SET);
+        write(file_handle, extra_blocks, 4);
 
-        lseek(fd, 4, SEEK_CUR);
-        write(fd, 0, 4);
+        lseek(file_handle, 4, SEEK_CUR);
+        write(file_handle, 0, 4);
 
         for (i = 2 ; i < extra_blocks; i++){
-            lseek(fd, 4 , SEEK_CUR);
-            write(fd, inode_block_count + 2 + data_block_chunk_index * FREE_BLOCKS + i - 1 , 4 );
+            lseek(file_handle, 4 , SEEK_CUR);
+            write(file_handle, inode_block_count + 2 + data_block_chunk_index * FREE_BLOCKS + i - 1 , 4 );
         }
-        printf("last byte %d\n", inode_block_count + 2 + data_block_chunk_index * FREE_BLOCKS + i - 1);   
     }
 }
+
 
 //create root directory and inode.
 void create_root_dir()
 {
     unsigned int i = 0;
     unsigned short num_bytes;
-    unsigned int dblock = allocatefreedblock();
+    unsigned int free_block = get_free_block();
 
     for (i = 0; i < 28; i++)
-        newdir.filename[i] = 0;
+        new_directory.filename[i] = 0;
 
-    newdir.filename[0] = '.'; //root directory's file name is .
-    newdir.filename[1] = '\0';
-    newdir.inode = 1; // root directory's inode number is 1.
+    new_directory.filename[0] = '.'; //root directory's file name is .
+    new_directory.filename[1] = '\0';
+    new_directory.inode = 1; // root directory's inode number is 1.
 
-    initial_inode.flags = inode_alloc | directory | 000077;
-    initial_inode.nlinks = 1;
-    initial_inode.uid = 0;
-    initial_inode.gid = 0;
-    initial_inode.size0 = 0;
-    initial_inode.size1 = 0;
-    initial_inode.addr[0] = dblock;
+
+    // 1100110000000000
+    first_inode.flags = 0b1100110000000000;     // all flags
+    first_inode.nlinks = 2;                     // 2 links. one for . and the other for ..
+    first_inode.uid = 0;
+    first_inode.gid = 0;
+    first_inode.size0 = 0;
+    first_inode.size1 = 0;
+    first_inode.addr[0] = free_block;
 
     for (i = 1; i < 9; i++)
-        initial_inode.addr[i] = 0;
+        first_inode.addr[i] = 0;
 
-    initial_inode.actime = 0;
-    //initial_inode.modtime[0] = 0;
-    initial_inode.modtime = 0;
+    first_inode.actime = time(0);
+    first_inode.modtime = time(0);
 
-    // write_inode(initial_inode, 0);
-    lseek(fd, BLOCK_SIZE * 2, SEEK_SET);
-    write(fd, &initial_inode, 64);
-    lseek(fd, dblock * BLOCK_SIZE, SEEK_SET);
+    // write_inode(first_inode, 0);
+    lseek(file_handle, BLOCK_SIZE * 2, SEEK_SET);
+    write(file_handle, &first_inode, 64);
+    printf("\nFree block %d\n", free_block);
+    lseek(file_handle, free_block * BLOCK_SIZE, SEEK_SET);
 
-    //filling 1st entry with .
-    num_bytes = write(fd, &newdir, 16);
-    if ((num_bytes) < 16)
+    // . directory
+    
+    num_bytes = write(file_handle, &new_directory, DIRECTORY_SIZE);
+    if ((num_bytes) < DIRECTORY_SIZE)
         printf("\n Error in writing root directory \n ");
 
-    //filling net entry with ..
-    newdir.filename[0] = '.';
-    newdir.filename[1] = '.';
-    newdir.filename[2] = '\0';
-    num_bytes = write(fd, &newdir, 16);
-    if ((num_bytes) < 16)
+    // .. directory
+    
+    new_directory.filename[0] = '.';
+    new_directory.filename[1] = '.';
+    new_directory.filename[2] = '\0';
+    num_bytes = write(file_handle, &new_directory, DIRECTORY_SIZE);
+    if ((num_bytes) < DIRECTORY_SIZE)
         printf("\n Error in writing root directory\n ");
 }
 
 // file system initilization
-int initializefs(char *path, unsigned int total_blocks, unsigned int total_inodes_blocks)
+int initialize_file_system(char *path, unsigned int total_blocks, unsigned int total_inodes_blocks)
 {
 
     unsigned int total_inodes = total_inodes_blocks * BLOCK_SIZE / INODE_SIZE ;
-    printf("\nV6 File System by Biswadip, Yangru and Shejo\n");
+    printf("\nV6 Created by Biswadip, Yangru and Shejo\n");
     char buffer[BLOCK_SIZE];
     int num_bytes;
     super.isize = total_inodes_blocks; //number of inode
@@ -220,11 +215,12 @@ int initializefs(char *path, unsigned int total_blocks, unsigned int total_inode
 
     unsigned short i = 0;
 
-    if ((fd = open(path, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR)) == -1)
+    if ((file_handle = open(path, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR)) == -1)
     {
-        printf("\n open() failed with error [%s]\n", strerror(errno));
+        printf("\n error in opening file [%s]\n", strerror(errno));
         return 1;
     }
+    
     //assigning superblock values
     for (i = 0; i < FREE_BLOCKS; i++)
         super.free[i] = 0;
@@ -234,27 +230,24 @@ int initializefs(char *path, unsigned int total_blocks, unsigned int total_inode
     super.flock = 'm';
     super.ilock = 'y';
     super.fmod = 'b';
-    super.time = 0000; //------------
-    lseek(fd, BLOCK_SIZE, SEEK_SET);
-    //#lseek(fd,0,SEEK_SET);
-    //#write(fd, &super, 1024);// write 1025 byte from &super to fd
-
-    if ((num_bytes = write(fd, &super, BLOCK_SIZE)) < BLOCK_SIZE)
+    super.time = time(0); //------------
+    lseek(file_handle, BLOCK_SIZE, SEEK_SET);
+    if ((num_bytes = write(file_handle, &super, BLOCK_SIZE)) < BLOCK_SIZE)
     {
-        printf("\n error in writing the super block\n");
+        printf("\nError in super block writing\n");
         return 0;
     }
 
     for (i = 0; i < BLOCK_SIZE; i++)
         buffer[i] = 0;
 
-    printf("Inode count : %d\n", super.isize);
+    printf("\nBlocks with Inode count : %d\n", super.isize);
+    
     for (i = 0; i < super.isize; i++)
-        lseek(fd, (i + 2 ) * 1024, SEEK_SET);   //reposition read/write file offset i*1024 byte from the start of file
-        write(fd, buffer, BLOCK_SIZE);          //write zero to all inode
+        lseek(file_handle, (i + 2 ) * 1024, SEEK_SET);   
+        write(file_handle, buffer, BLOCK_SIZE);         
 
     // chaining data blocks
-    // chainblocks(total_blocks);
     chaining_blocks(total_blocks, super.isize);
 
 
@@ -263,39 +256,39 @@ int initializefs(char *path, unsigned int total_blocks, unsigned int total_inode
 }
 
 // get a free data block.&&
-unsigned int allocatefreedblock()
+unsigned int get_free_block()
 {
-    unsigned int block;
-    block = super.free[--super.nfree];
+    unsigned int next_block;
+    next_block = super.free[--super.nfree];
     super.free[super.nfree] = 0;
 
     if (super.nfree == 0)
     {
         int n = 0;
-        read_block(chainarray, block);
-        super.nfree = chainarray[0];
+        read_block(block_number_tracker, next_block);
+        super.nfree = block_number_tracker[0];
         for (n = 0; n < FREE_BLOCKS; n++)
-            super.free[n] = chainarray[n + 1];
+            super.free[n] = block_number_tracker[n + 1];
     }
-    return block;
+    return next_block;
 }
 
 //Read integer array from the required block&&
-void read_block(unsigned short *dest, unsigned short bno)
+void read_block(unsigned short *dest, unsigned short block_number)
 {
     int flag = 0;
-    if (bno > super.isize + super.fsize)
+    if (block_number > super.isize + super.fsize)
         flag = 1;
 
     else
     {
-        lseek(fd, bno * BLOCK_SIZE, SEEK_SET); //added block size
-        read(fd, dest, BLOCK_SIZE);
+        lseek(file_handle, block_number * BLOCK_SIZE, SEEK_SET); //added block size
+        read(file_handle, dest, BLOCK_SIZE);
     }
 }
 
 //Write integer array to the required block
-void write_block(unsigned short *dest, unsigned short bno)
+void write_block(unsigned int *dest, unsigned int bno)
 {
     int flag1, flag2;
     int num_bytes;
@@ -304,8 +297,8 @@ void write_block(unsigned short *dest, unsigned short bno)
         flag1 = 1;
     else
     {
-        lseek(fd, bno * BLOCK_SIZE, 0);
-        num_bytes = write(fd, dest, BLOCK_SIZE);
+        lseek(file_handle, bno * BLOCK_SIZE, 0);
+        num_bytes = write(file_handle, dest, BLOCK_SIZE);
 
         if ((num_bytes) < BLOCK_SIZE)
             flag2 = 1;
@@ -317,57 +310,28 @@ void write_block(unsigned short *dest, unsigned short bno)
 }
 
 //Write to an inode given the inode number	&&
-void write_inode(fs_inode current_inode, unsigned int inode_index)
+void write_inode(inode_type current_inode, unsigned int inode_index)
 {
     int num_bytes;
-    lseek(fd, 2 * BLOCK_SIZE + inode_index * INODE_SIZE, 0);
-    num_bytes = write(fd, &current_inode, INODE_SIZE);
+    lseek(file_handle, 2 * BLOCK_SIZE + inode_index * INODE_SIZE, 0);
+    num_bytes = write(file_handle, &current_inode, INODE_SIZE);
 
     if ((num_bytes) < INODE_SIZE)
         printf("\n Error in inode number : %d\n", inode_index);
 }
 
-//free data blocks and initialize free array
-
-//Function to update root directory
-
-//Copying from a Small File
-
-// cpout Copying from v-6file System into an external File
-
-//Copying Small file using cpout
-
-//Copying a large file using cpout
-
-// make directory
-
-// display all files
-
-//MAIN
 int main(int argc, char *argv[])
 {
     char c;
     int i = 0;
-    char *tmp = (char *)malloc(sizeof(char) * 200);
-    char *cmd1 = (char *)malloc(sizeof(char) * 200);
     signal(SIGINT, SIG_IGN);
-    int fs_initcheck = 0;   // bit to check if file system is initialized
-    char *parser, cmd[512]; //changed from 256 to 512
-    unsigned short n = 0, j, k;
-    char buffer1[BLOCK_SIZE];
-    unsigned short num_bytes;
-    char *name_dir;
-    char *cpoutextern;
-    char *cpoutsource;
-    unsigned int bno = 0, inode_no = 0;
-    char *cpinextern;
-    char *cpinsource;
+    char *parser, cmd[512];
+    unsigned int bno = 0, inode_block_count = 0;
     char file_path[200];
-    char *filesystem;
     char *filename;
-    char *num1, *num2, *num3, *num4;
+    char *num1, *num2;
 
-    printf("\n\nInitialize file system by using initfs <<name of your v6filesystem>> << total blocks>> << total inodes>>\n");
+    printf("\n\nInitialize file system by using\n1. openfs <file_name>\n2.initfs < total blocks> < total inode blocks>\n");
     while (1)
     {
         printf("\nEnter command\n");
@@ -375,39 +339,37 @@ int main(int argc, char *argv[])
         parser = strtok(cmd, " "); //break string in to a serious tokens using the delimiter " "
         if (strcmp(parser, "initfs") == 0)
         {
-            num1 = strtok(NULL, " "); //read the third breaked tokens
-            num2 = strtok(NULL, " "); //read the forth breaked tokens
-            printf("%s", file_path);
+            num1 = strtok(NULL, " "); 
+            num2 = strtok(NULL, " "); 
+            printf("Filesystem: %s", file_path);
 
             if (access(file_path, X_OK) != -1)
             {
 
                 // open for reading and writing
-                if (fd = open(file_path, 0x0002) == -1)
+                if (file_handle = open(file_path, 0x0002) == -1)
                 {
                     printf("File system exists, open failed");
                     return 1;
                 }
                 access(file_path, R_OK | W_OK | X_OK);
                 printf("File system already exists.\n");
-                fs_initcheck = 1;
             }
             else 
             {
                 if (!num1 || !num2) //if num1 or num2 equals to zero
-                    printf("Enter all arguments in form initfs v6filesystem 5000 400.\n");
+                    printf("Enter all arguments in form initfs 560 50.\n");
                 else
                 {
                     bno = atoi(num1);      //convert a string to an interger(total_blocks)
-                    inode_no = atoi(num2); //convert a string to an interger(total_inodes)
-                    if (initializefs(file_path, bno, inode_no))
+                    inode_block_count = atoi(num2); //convert a string to an interger(total_inodes)
+                    if (initialize_file_system(file_path, bno, inode_block_count))
                     {
                         printf("File System has been Initialized \n");
-                        fs_initcheck = 1;
                     }
                     else
                     {
-                        printf("Error: File system initialization error.\n");
+                        printf("Error: Error in file system initialization\n");
                     }
                 }
             }
@@ -421,7 +383,7 @@ int main(int argc, char *argv[])
         else if (strcmp(parser, "q") == 0)
         {
             printf("Exiting the program");
-            close(fd);
+            close(file_handle);
             exit(0);
         }
     }
