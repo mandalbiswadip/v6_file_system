@@ -608,6 +608,7 @@ unsigned int cpin_handle(char *external_file, char *v6_file){
     char **file_tokens = tokenize_file_path(v6_file, &token_count, 40);
 
     printf("token count %d\n",token_count);
+    printf("demo..........");
 
     inode_type *curr_inode = NULL;
     inode_type *previous_inode = get_inode_by_number(1);
