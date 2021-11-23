@@ -331,7 +331,7 @@ void read_inode(unsigned short *dest, unsigned short inode_number)
         flag = 1;
     else
     {
-        lseek(file_handle, inode_number * INODE_SIZE, SEEK_SET); //added block size
+        lseek(file_handle, BLOCK_SIZE * 2 + inode_number * INODE_SIZE, SEEK_SET); //added block size
         read(file_handle, dest, INODE_SIZE);
     }
 }
@@ -341,15 +341,10 @@ dir_type* read_directory_type(unsigned int address)
 {
     dir_type *direc;
     direc = malloc(sizeof(dir_type));
-    printf("direc size %\n", sizeof(direc));
     char direc_bytes[DIRECTORY_SIZE];
-    printf("reading directory %d\n", address);
     lseek(file_handle, address, SEEK_SET); 
-    printf("reading directory\n");  
     read(file_handle, &direc_bytes, DIRECTORY_SIZE);
-    printf("reading directory\n");
     bytes_to_directory(&direc_bytes, direc);
-    printf("reading directory\n");
     return direc;
 }
 
@@ -459,6 +454,7 @@ unsigned int get_inode_no_for_directory(inode_type *current_inode, char *filetok
 
 void bytes_to_inode(char *data, inode_type *inode) {
     memcpy(&inode->flags, &data[0], 2);
+    printf("flags %d\n", inode->flags);
     memcpy(&inode->nlinks, &data[2], 2);
     memcpy(&inode->uid, &data[4], 4);
     memcpy(&inode->gid, &data[8], 4);
@@ -508,11 +504,13 @@ unsigned int get_free_inode_number(superblock_type *super_block){
     return 0;
 }
 
+
+// get the inode given inode number(starting from 1)
 inode_type* get_inode_by_number(unsigned int inode_number){
     inode_type *inode;
     inode = malloc(sizeof(inode_type));
     char inode_data[INODE_SIZE];
-    read_inode(inode_data, inode_number);
+    read_inode(&inode_data, inode_number-1);
     bytes_to_inode(&inode_data, inode);
     return inode;
 }
@@ -574,7 +572,6 @@ unsigned int add_directory_to_inode(inode_type *inode, char *filename, unsigned 
         address_block = inode->addr[i];
 
         if(address_block == 0){
-            printf("address block ..%d\n", address_block);
             address_block = get_free_block();
             lseek(file_handle, address_block * BLOCK_SIZE, SEEK_SET);
             write(file_handle, &new_directory, DIRECTORY_SIZE);
@@ -583,7 +580,6 @@ unsigned int add_directory_to_inode(inode_type *inode, char *filename, unsigned 
         }
 
         for (dir_index = 0; dir_index < BLOCK_SIZE / DIRECTORY_SIZE; dir_index++){
-            printf("dir index ..%d\n", dir_index);
             current_dir = read_directory_type(address_block * BLOCK_SIZE + dir_index * DIRECTORY_SIZE);
 
             if (current_dir->inode == 0){
@@ -637,16 +633,15 @@ unsigned int cpin_handle(char *external_file, char *v6_file){
             // add . and .. to the current directory
             add_directory_to_inode(curr_inode, ".", current_inode_no);
             add_directory_to_inode(curr_inode, "..", previous_inode_no);
-            printf("writing inode..\n");
-            write_inode(curr_inode, current_inode_no);
+            write_inode(curr_inode, current_inode_no - 1);
 
             // link with parent
-            printf("adding direcctory in parent %s\n", file_tokens[i]);
+            printf("adding direcctory in parent for %s\n", file_tokens[i]);
             add_directory_to_inode(previous_inode, file_tokens[i], current_inode_no);
 
-            printf("writing inode..\n");
+            printf("previous inode flags: %d\n", previous_inode->flags);
 
-            write_inode(previous_inode, previous_inode_no);
+            write_inode(previous_inode, previous_inode_no - 1);
 
         }else{
             printf("%s already exists\n", file_tokens[i]);
@@ -660,9 +655,9 @@ unsigned int cpin_handle(char *external_file, char *v6_file){
 
 
     // for the last token or file.
-    current_inode_no = get_inode_no_for_directory(curr_inode, file_tokens[token_count - 1]);
+    current_inode_no = get_inode_no_for_directory(previous_inode, file_tokens[token_count - 1]);
 
-    if(current_inode_no == 0){
+    if(current_inode_no != 0){
         printf("File already exists!!");
     }else{
         current_inode_no =  get_free_inode_number(&super);
@@ -674,7 +669,7 @@ unsigned int cpin_handle(char *external_file, char *v6_file){
 
         // link with parent
         add_directory_to_inode(previous_inode, file_tokens[token_count-1], current_inode_no);
-        write_inode(previous_inode, previous_inode_no);
+        write_inode(previous_inode, previous_inode_no - 1);
         printf("File %s doesn't exists. Creating the file at inode %d\n", file_tokens[token_count -1], current_inode_no);
 
         fill_file_inode(curr_inode);       
@@ -699,7 +694,7 @@ unsigned int cpin_handle(char *external_file, char *v6_file){
         }
         curr_inode->size0 = total_size;             // TODO: check how to incorporate size1
 
-        write_inode(curr_inode, current_inode_no);
+        write_inode(curr_inode, current_inode_no - 1);
         
     }
 
