@@ -560,7 +560,7 @@ unsigned int add_directory_to_inode(inode_type *inode, char *filename, unsigned 
 
     dir_type new_directory;
     new_directory.inode = inode_number;
-    strncpy(new_directory.filename, filename, min(sizeof(filename), MAX_FILE_TOKENS));
+    strncpy(new_directory.filename, filename,  MAX_FILE_TOKENS);
 
     dir_type *current_dir;
 
@@ -593,16 +593,26 @@ unsigned int add_directory_to_inode(inode_type *inode, char *filename, unsigned 
     return 0;
 }
 
+unsigned int get_inode_file_size(inode_type *inode){
+    // TODO to include size1 for later file for later parts of the assignments
+    return inode->size0;
+}
+
 unsigned int cpin_handle(char *external_file, char *v6_file){
+    if (external_file == NULL || v6_file == NULL){
+        printf("\nINVALID INPUT! Follow this format\ncpinexternalfilev6-file\n");
+        return -1;
+    }
+
     int token_count = 0;
     
     printf("External file: %s\n", external_file);
     printf("V6 File: %s\n", v6_file);
-    bool absolute = check_absolute_path(external_file);
+    bool absolute = check_absolute_path(v6_file);
 
     // TODO: - handle absolute is false
     if (absolute == false){
-        strcat(current_file, external_file);
+        strcat(current_file, v6_file);
         printf("%s\n", current_file);
     }
     char **file_tokens = tokenize_file_path(v6_file, &token_count, 40);
@@ -676,39 +686,123 @@ unsigned int cpin_handle(char *external_file, char *v6_file){
         
         FILE *f = fopen(external_file, "rb");
         char data_store[BLOCK_SIZE];
-        int free_block;
+        unsigned int free_block;
         int address_i = 0;
         unsigned int total_size = 0;
 
 
         // for small sizes
-        while(feof(f)==0 || address_i < 9){
+        while(feof(f)==0 && address_i < INODE_ADDRESSES){
             free_block = get_free_block();
             if (free_block == 0){
+                printf("No free block\n");
                 return 0;
             }
             size_t num_bytes = fread(data_store, 1, BLOCK_SIZE, f);
             total_size += num_bytes;
             write_block(data_store, free_block);
             curr_inode->addr[address_i] = free_block;
+            address_i ++;
         }
-        curr_inode->size0 = total_size;             // TODO: check how to incorporate size1
+        curr_inode->size0 = total_size;
+        printf("Size of total file %d\n", total_size);
 
         write_inode(curr_inode, current_inode_no - 1);
         
     }
-
-
-    // eheck if directory exists for file -- assume it exists for now
-    // read external file content  -- 
-    // create new i node for file
-    //      get datablock and put value
-    //      set flags and size
-    //      no need for directory as only dealing with file 
-    //      setting nlinks?
     return 0;
-
 }
+
+
+unsigned int cout_handle(char *external_file, char *v6_file){
+    if (external_file == NULL || v6_file == NULL){
+        printf("\nINVALID INPUT! Follow this format\ncpout v6-file externalfile\n");
+        return -1;
+    }
+    int token_count = 0;
+    
+    printf("External file: %s\n", external_file);
+    printf("V6 File: %s\n", v6_file);
+    bool absolute = check_absolute_path(v6_file);
+
+    // TODO: - handle absolute is false
+    if (absolute == false){
+        strcat(current_file, v6_file);
+        printf("%s\n", current_file);
+    }
+    char **file_tokens = tokenize_file_path(v6_file, &token_count, 40);
+
+    printf("token count %d\n",token_count);
+
+    inode_type *curr_inode = NULL;
+    inode_type *previous_inode = get_inode_by_number(1);
+    unsigned int current_inode_no = 0;
+    unsigned int previous_inode_no = 1;
+
+    
+    // iterate through the file path
+    // leaving the last token out as inode_no = 0 means that the file exists, 
+    // but for directory it means that directory doesn't exist
+    for (int i = 0 ; i < token_count - 1; i++){
+        current_inode_no = get_inode_no_for_directory(previous_inode, file_tokens[i]);
+
+        if (current_inode_no == 0){
+            
+            printf("Directory %s doesn't exists!!\n", file_tokens[i]);
+            return -1;
+        }else{
+            printf("%s exists\n", file_tokens[i]);
+            curr_inode = get_inode_by_number(current_inode_no);
+        }
+
+        free(previous_inode);
+        previous_inode = curr_inode;
+        previous_inode_no = current_inode_no;
+    }
+
+
+    // for the last token or file.
+    current_inode_no = get_inode_no_for_directory(previous_inode, file_tokens[token_count - 1]);
+    printf("Dir inode number: %d\n", previous_inode_no);
+    printf("File inode number: %d\n", current_inode_no);
+    if(current_inode_no != 0){
+        printf("File exists. copying it!!\n");
+        FILE *f = fopen(external_file, "wb");
+        curr_inode = get_inode_by_number(current_inode_no);
+        unsigned int file_size = get_inode_file_size(curr_inode);
+        printf("File size for %s is %d\n", file_tokens[token_count - 1], file_size);
+
+        unsigned int address_block;
+        unsigned short dir_index;
+        unsigned short i;
+        char data[BLOCK_SIZE];
+
+        for(i=0 ; i < INODE_ADDRESSES ; i++){
+            address_block = curr_inode->addr[i];
+
+            if(address_block == 0){
+                printf("Ending copying!!\n");
+                return 0;
+            }
+            printf("Copying block %d\n", address_block);
+            read_block(data, address_block);
+
+            if (file_size > BLOCK_SIZE){
+                fwrite(data, 1, BLOCK_SIZE, f );
+                file_size -= BLOCK_SIZE;
+            }else{
+                fwrite(data, 1, file_size, f);
+                fclose(f);
+                file_size = 0;
+            }
+        }
+    }else{
+        printf("File %s doesn't exist!!", file_tokens[token_count-1]);    
+        return -1;
+    }
+    return 0;
+}
+
 
 int main(int argc, char *argv[])
 {
@@ -782,7 +876,12 @@ int main(int argc, char *argv[])
             cpin_handle(external_file, v6_file);
         }
 
-
+        else if (strcmp(parser, "cpout") == 0)
+        {
+            v6_file = strtok(NULL, " "); 
+            external_file = strtok(NULL, " "); 
+            cout_handle(external_file, v6_file);
+        }
         else if (strcmp(parser, "q") == 0)
         {
             printf("Exiting the program");
