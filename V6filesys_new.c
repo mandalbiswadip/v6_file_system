@@ -979,6 +979,7 @@ int main(int argc, char *argv[])
     char *filename;
     char *external_file, * v6_file;
     char *num1, *num2;
+    superblock_type *sb;
 
     printf("\n\nInitialize file system by using\n1. openfs <file_name>\n2.initfs < total blocks> < total inode blocks>\n");
     while (1)
@@ -1039,6 +1040,19 @@ int main(int argc, char *argv[])
             v6_file = strtok(NULL, " "); 
             cpin_handle(external_file, v6_file);
         }
+
+        else if (strcmp(parser, "mkdir") == 0)
+        {
+            v6_file = strtok(NULL, " "); 
+            mkdir(v6_file);
+        }
+
+        else if (strcmp(parser, "rm") == 0)
+        {
+            v6_file = strtok(NULL, " "); 
+            delete_a_file(sb, v6_file);  // how to get sb value
+        }
+
 
 
         else if (strcmp(parser, "q") == 0)
