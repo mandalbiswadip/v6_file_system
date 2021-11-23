@@ -369,8 +369,11 @@ void write_block(unsigned int *dest, unsigned int bno)
     int flag1, flag2;
     int num_bytes;
 
-    if (bno > super.isize + super.fsize)
+
+    if (bno > super.isize + super.fsize){
         flag1 = 1;
+        int block_written=1;
+    }
     else
     {
         lseek(file_handle, bno * BLOCK_SIZE, 0);
@@ -550,6 +553,21 @@ void fill_directory_inode(inode_type *dir_inode){
     dir_inode->modtime = time(0);
 }
 
+// initializing a inode 
+static void init_Inode(inode_type *inode) {
+    inode->flags = 0;
+    inode->nlinks = 0;
+    inode->uid = 0;
+    inode->gid = 0;
+    inode->size0 = 0;
+    inode->size1 = 0;
+    for (size_t i = 0; i < 9; i++) {
+        inode->addr[i] = 0;
+    }
+    inode->actime = 0;
+    inode->modtime = 0;
+}
+
 
 unsigned int add_directory_to_inode(inode_type *inode, char *filename, unsigned int inode_number){
 
@@ -618,6 +636,7 @@ unsigned int cpin_handle(char *external_file, char *v6_file){
     char **file_tokens = tokenize_file_path(v6_file, &token_count, 40);
 
     printf("token count %d\n",token_count);
+    printf("demo..........");
 
     inode_type *curr_inode = NULL;
     inode_type *previous_inode = get_inode_by_number(1);
@@ -804,6 +823,244 @@ unsigned int cout_handle(char *external_file, char *v6_file){
 }
 
 
+
+int mkdir(char *directory_Path) {
+    unsigned int inode_count;
+
+    inode_count = make_directory(directory_Path);//  FILE_TYPE_DIRECTORY deleted
+
+    if (inode_count == 0) {
+        return -1;
+    }
+    return 0;
+}
+
+
+unsigned int make_directory(char *directory_Path){
+    int token_count = 0;
+    
+    printf("V6 File: %s\n", directory_Path);
+
+    
+    char **file_tokens = tokenize_file_path(directory_Path, &token_count, 40);
+
+    printf("token count %d\n",token_count);
+    printf("demo..........");
+
+    inode_type *curr_inode = NULL;
+    inode_type *previous_inode = get_inode_by_number(1);
+    unsigned int current_inode_no = 0;
+    unsigned int previous_inode_no = 1;
+
+    
+    // iterate through the file path
+    // leaving the last token out as inode_no = 0 means that the file exists, 
+    // but for directory it means that directory doesn't exist
+    for (int i = 0 ; i < token_count - 1; i++){
+        current_inode_no = get_inode_no_for_directory(previous_inode, file_tokens[i]);
+
+        if (current_inode_no == 0){
+            
+            // create the folder if it doesn't exists
+            current_inode_no = get_free_inode_number(&super);
+            printf("%s doesn't exists. Creating the folder at inode %d\n", file_tokens[i], current_inode_no);
+            curr_inode =  get_inode_by_number(current_inode_no);
+            fill_directory_inode(curr_inode);
+
+
+            // add . and .. to the current directory
+            add_directory_to_inode(curr_inode, ".", current_inode_no);
+            add_directory_to_inode(curr_inode, "..", previous_inode_no);
+            write_inode(curr_inode, current_inode_no - 1);
+
+            // link with parent
+            printf("adding direcctory in parent for %s\n", file_tokens[i]);
+            add_directory_to_inode(previous_inode, file_tokens[i], current_inode_no);
+
+            printf("previous inode flags: %d\n", previous_inode->flags);
+
+            write_inode(previous_inode, previous_inode_no - 1);
+
+        }else{
+            printf("%s already exists\n", file_tokens[i]);
+            curr_inode = get_inode_by_number(current_inode_no);
+        }
+
+        free(previous_inode);
+        previous_inode = curr_inode;
+        previous_inode_no = current_inode_no;
+    }
+    return 0;
+}
+
+
+/*
+* remove a dir
+*
+*/
+
+
+//save a inode 
+static int save_Inode(superblock_type *sb, unsigned int inode_count, inode_type *inode) {
+    unsigned int inode_block_count;
+    unsigned int offset_in_block;
+    int block_data[BLOCK_SIZE];
+
+    if (inode_count > sb->isize * 16) {
+        return -1;
+    }
+
+    inode_block_count = (inode_count - 1) / 16 + 2;
+    offset_in_block = ((inode_count - 1) % 16) * INODE_SIZE;
+
+    read_block(&block_data, inode_block_count);  // doubt
+    inode_to_bytes(inode, &block_data[offset_in_block]);
+    write_block(&block_data, inode_block_count); //doubt
+
+    return 0;
+}
+
+/*
+ * Frees the given block number. Updates the superblock accordingly.
+ */
+static int free_block(superblock_type *sb, unsigned int block_count) {
+    int bytes_written;
+    unsigned int *block_data;
+    int block_written;
+
+    if (block_count < 2 || block_count >= sb->fsize) {
+        return -1;
+    }
+
+    if (sb->nfree == 251) {
+        // Allocate one 1024 byte chunk to buffer write data
+        block_data = malloc(sizeof(unsigned int) * 512);
+
+        block_data[0] = sb->nfree;
+        memcpy(&block_data[1], sb->free, sb->nfree * 2);
+
+        write_block(&block_data, block_count); //doubt
+        if (block_written != 0) {
+            free(block_data);
+            return block_written;
+        }
+
+        sb->nfree = 0;
+
+        free(block_data);
+    }
+
+    sb->free[sb->nfree] = block_count;
+    sb->nfree++;
+
+    return 0;
+}
+
+//free a inode
+static int freeInode(superblock_type *sb, int inode_count){
+    if(inode_count <1 || inode_count > sb -> isize * 16){
+        return -1;
+    }
+
+    int block_count = 0;
+    inode_type *inode = get_inode_by_number(inode_count);
+    unsigned int nextBlockNumberFilled = fetchNextBlockNumverFilled(inode);
+
+    while(nextBlockNumberFilled != 0){
+        free_block(sb, nextBlockNumberFilled); //TODO need to implememt
+        nextBlockNumberFilled = fetchNextBlockNumverFilled(NULL);
+    }
+
+    init_Inode(inode);
+    save_Inode(sb,inode_count,inode);
+
+}
+
+
+//delete a directory entry
+static int deleteDirectoryEntry(inode_type *inode, char *filename) {
+    unsigned int block_data[BLOCK_SIZE];
+    int block_count = fetchNextBlockNumverFilled(inode);
+    int inode_count = 0;
+    char inode_FileName[28] = { 0 };
+
+    if (inodeIsDirectory(inode) == 0) {
+        return -1;
+    }
+
+    while (block_count != 0) {
+        read_block(&block_data, block_count);
+        for (int i = 0; i < 32; i++) {
+            memcpy(&inode_count, &block_data[i * 16], 4);
+            memcpy(inode_FileName, &block_data[(i * 16) + 2], 28);
+
+            if (inode_count > 0) {
+                if (strncmp(filename, inode_FileName, 28) == 0) {
+                    inode_count = 0;
+                    memcpy(&block_data[i * 16], &inode_count, 2);
+                    write_block(&block_data, block_count);
+                    return 0;
+                }
+            }
+        }
+        block_count = fetchNextBlockNumverFilled(NULL);
+    }
+
+    return -1;
+}
+
+
+
+//  remove a file 
+int delete_a_file(superblock_type *sb, char *file_path){
+    int token_count = 0;
+
+    inode_type *curr_inode = NULL;
+    inode_type *previous_inode = get_inode_by_number(1);
+    unsigned int current_inode_no = 0;
+    unsigned int previous_inode_no = 1;
+
+    char **file_tokens = tokenize_file_path(file_path, token_count, 40); //why max token is 40
+    printf("token count %d\n",token_count);
+
+
+    for(int i=0; i<token_count-1; i++){
+        current_inode_no = get_inode_no_for_directory(previous_inode, file_tokens[i]);
+        printf("\n inode count %d\n", current_inode_no);
+        
+        if(current_inode_no==0){
+            if(curr_inode != NULL){
+                free(curr_inode);
+            }
+            free(previous_inode);
+            return -1;//NO_FILE_EXIST; // need to check
+        }
+
+        curr_inode = get_inode_by_number(current_inode_no); //need to check 
+        printf("\n inode %d\n", curr_inode);
+
+        free(previous_inode);
+        previous_inode = curr_inode;
+        previous_inode_no = current_inode_no;
+    }
+
+    current_inode_no = get_inode_no_for_directory(previous_inode, file_tokens[token_count-1]);
+    printf("\n 2. inode count %d\n", current_inode_no);
+
+    if(current_inode_no==0){
+        free(previous_inode);
+        free(curr_inode);
+        return -1; //NO_FILE_EXIST;
+    }else{
+        deleteDirectoryEntry(previous_inode, file_tokens[token_count-1]);
+        freeInode(sb,current_inode_no);
+        return 0;
+    }
+}
+
+        
+
+
 int main(int argc, char *argv[])
 {
     char c;
@@ -815,6 +1072,7 @@ int main(int argc, char *argv[])
     char *filename;
     char *external_file, * v6_file;
     char *num1, *num2;
+    superblock_type *sb;
 
     printf("\n\nInitialize file system by using\n1. openfs <file_name>\n2.initfs < total blocks> < total inode blocks>\n");
     while (1)
@@ -881,6 +1139,17 @@ int main(int argc, char *argv[])
             v6_file = strtok(NULL, " "); 
             external_file = strtok(NULL, " "); 
             cout_handle(external_file, v6_file);
+        }
+        else if (strcmp(parser, "mkdir") == 0)
+        {
+            v6_file = strtok(NULL, " "); 
+            mkdir(v6_file);
+        }
+
+        else if (strcmp(parser, "rm") == 0)
+        {
+            v6_file = strtok(NULL, " "); 
+            delete_a_file(sb, v6_file);  // how to get sb value
         }
         else if (strcmp(parser, "q") == 0)
         {
