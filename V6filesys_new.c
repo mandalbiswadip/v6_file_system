@@ -31,7 +31,8 @@
 // VARIABLES
 int file_handle;
 unsigned short block_number_tracker[max_array];
-char current_file[200];
+char current_file[200] = {'/'};
+char slash[1] = {'/'};
 
 // super block
 typedef struct {
@@ -102,6 +103,9 @@ void read_external_file(char *path);
 unsigned int get_inode_no_for_directory(inode_type *current_inode, char *filetoken);
 
 void bytes_to_directory(char *data, dir_type *direc);
+unsigned int fetchNextBlockNumverFilled(inode_type *inode);
+bool is_inode_directory(inode_type *inode);
+unsigned int make_directory(char *directory_Path);
 
 // splitfile and check existance
 
@@ -616,9 +620,23 @@ unsigned int get_inode_file_size(inode_type *inode){
     return inode->size0;
 }
 
+char* normalize_file(char *v6_file){
+    
+    bool absolute = check_absolute_path(v6_file);
+    if (absolute == false){
+        char *new_path;
+        new_path = malloc(sizeof(current_file));
+        strcpy(new_path, current_file);
+        strcat(new_path, v6_file);
+        strcpy(v6_file, new_path);
+    }
+
+    return v6_file;
+}
+
 unsigned int cpin_handle(char *external_file, char *v6_file){
     if (external_file == NULL || v6_file == NULL){
-        printf("\nINVALID INPUT! Follow this format\ncpinexternalfilev6-file\n");
+        printf("\nINVALID INPUT! Follow this format\ncpin externalfile v6-file\n");
         return -1;
     }
 
@@ -626,13 +644,7 @@ unsigned int cpin_handle(char *external_file, char *v6_file){
     
     printf("External file: %s\n", external_file);
     printf("V6 File: %s\n", v6_file);
-    bool absolute = check_absolute_path(v6_file);
-
-    // TODO: - handle absolute is false
-    if (absolute == false){
-        strcat(current_file, v6_file);
-        printf("%s\n", current_file);
-    }
+    
     char **file_tokens = tokenize_file_path(v6_file, &token_count, 40);
 
     printf("token count %d\n",token_count);
@@ -651,7 +663,6 @@ unsigned int cpin_handle(char *external_file, char *v6_file){
         current_inode_no = get_inode_no_for_directory(previous_inode, file_tokens[i]);
 
         if (current_inode_no == 0){
-            
             // create the folder if it doesn't exists
             current_inode_no = get_free_inode_number(&super);
             printf("%s doesn't exists. Creating the folder at inode %d\n", file_tokens[i], current_inode_no);
@@ -823,20 +834,22 @@ unsigned int cout_handle(char *external_file, char *v6_file){
 }
 
 
-
-int mkdir(char *directory_Path) {
-    unsigned int inode_count;
+void makedir(char *directory_Path) {
+    int inode_count;
 
     inode_count = make_directory(directory_Path);//  FILE_TYPE_DIRECTORY deleted
 
     if (inode_count == 0) {
-        return -1;
+        printf("Error creating directory!!");
     }
+}
+
+unsigned int fetchNextBlockNumverFilled(inode_type *inode){
     return 0;
 }
 
 
-unsigned int make_directory(char *directory_Path){
+unsigned int check_dir(char *directory_Path){
     int token_count = 0;
     
     printf("V6 File: %s\n", directory_Path);
@@ -845,7 +858,6 @@ unsigned int make_directory(char *directory_Path){
     char **file_tokens = tokenize_file_path(directory_Path, &token_count, 40);
 
     printf("token count %d\n",token_count);
-    printf("demo..........");
 
     inode_type *curr_inode = NULL;
     inode_type *previous_inode = get_inode_by_number(1);
@@ -856,7 +868,44 @@ unsigned int make_directory(char *directory_Path){
     // iterate through the file path
     // leaving the last token out as inode_no = 0 means that the file exists, 
     // but for directory it means that directory doesn't exist
-    for (int i = 0 ; i < token_count - 1; i++){
+    for (int i = 0 ; i < token_count; i++){
+        current_inode_no = get_inode_no_for_directory(previous_inode, file_tokens[i]);
+
+        if (current_inode_no == 0){   
+            printf("ERROR. %s folder doesn't exists\n", file_tokens[i]);
+            return 1;
+        }else{
+            printf("Folder %s exists\n", file_tokens[i]);
+            curr_inode = get_inode_by_number(current_inode_no);
+        }
+
+        free(previous_inode);
+        previous_inode = curr_inode;
+        previous_inode_no = current_inode_no;
+    }
+    return 0;
+}
+
+unsigned int make_directory(char *directory_Path){
+    int token_count = 0;
+    
+    printf("V6 File: %s\n", directory_Path);
+
+    
+    char **file_tokens = tokenize_file_path(directory_Path, &token_count, 40);
+
+    printf("token count %d\n",token_count);
+
+    inode_type *curr_inode = NULL;
+    inode_type *previous_inode = get_inode_by_number(1);
+    unsigned int current_inode_no = 0;
+    unsigned int previous_inode_no = 1;
+
+    
+    // iterate through the file path
+    // leaving the last token out as inode_no = 0 means that the file exists, 
+    // but for directory it means that directory doesn't exist
+    for (int i = 0 ; i < token_count; i++){
         current_inode_no = get_inode_no_for_directory(previous_inode, file_tokens[i]);
 
         if (current_inode_no == 0){
@@ -984,7 +1033,7 @@ static int deleteDirectoryEntry(inode_type *inode, char *filename) {
     int inode_count = 0;
     char inode_FileName[28] = { 0 };
 
-    if (inodeIsDirectory(inode) == 0) {
+    if (is_inode_directory(inode) == false) {
         return -1;
     }
 
@@ -1130,7 +1179,8 @@ int main(int argc, char *argv[])
         else if (strcmp(parser, "cpin") == 0)
         {
             external_file = strtok(NULL, " "); 
-            v6_file = strtok(NULL, " "); 
+            v6_file = strtok(NULL, " ");
+            v6_file = normalize_file(v6_file);
             cpin_handle(external_file, v6_file);
         }
 
@@ -1138,18 +1188,39 @@ int main(int argc, char *argv[])
         {
             v6_file = strtok(NULL, " "); 
             external_file = strtok(NULL, " "); 
+            v6_file = normalize_file(v6_file);
             cout_handle(external_file, v6_file);
         }
         else if (strcmp(parser, "mkdir") == 0)
         {
             v6_file = strtok(NULL, " "); 
-            mkdir(v6_file);
+            v6_file = normalize_file(v6_file);
+            makedir(v6_file);
         }
 
         else if (strcmp(parser, "rm") == 0)
         {
             v6_file = strtok(NULL, " "); 
+            v6_file = normalize_file(v6_file);
             delete_a_file(sb, v6_file);  // how to get sb value
+        }
+        else if (strcmp(parser, "cd") == 0)
+        {
+            v6_file = strtok(NULL, " "); 
+            v6_file = normalize_file(v6_file);
+
+            if (v6_file[sizeof(v6_file)-1] != '/'){
+                strcat(v6_file, slash);
+            }
+
+            unsigned int direc_flag = check_dir(v6_file);
+
+            if (direc_flag != 1){
+                // TODO: check if dir exists
+                strcpy(current_file, v6_file);
+                printf("Current directory now at: %s", current_file);
+            }
+            // free(v6_file); 
         }
         else if (strcmp(parser, "q") == 0)
         {
