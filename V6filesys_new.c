@@ -27,11 +27,12 @@
 #define DIRECTORY_SIZE 32
 #define MAX_FILE_TOKENS 28
 #define INODE_ADDRESSES 9
+#define MAX_PATH_SIZE 300
 
 // VARIABLES
 int file_handle;
 unsigned short block_number_tracker[max_array];
-char current_file[200] = {'/'};
+char current_file[MAX_PATH_SIZE] = {'/'};
 char slash[1] = {'/'};
 
 // super block
@@ -461,7 +462,6 @@ unsigned int get_inode_no_for_directory(inode_type *current_inode, char *filetok
 
 void bytes_to_inode(char *data, inode_type *inode) {
     memcpy(&inode->flags, &data[0], 2);
-    printf("flags %d\n", inode->flags);
     memcpy(&inode->nlinks, &data[2], 2);
     memcpy(&inode->uid, &data[4], 4);
     memcpy(&inode->gid, &data[8], 4);
@@ -643,12 +643,11 @@ unsigned int cpin_handle(char *external_file, char *v6_file){
     int token_count = 0;
     
     printf("External file: %s\n", external_file);
-    printf("V6 File: %s\n", v6_file);
+    printf("File system path for saving: %s\n", v6_file);
     
     char **file_tokens = tokenize_file_path(v6_file, &token_count, 40);
 
     printf("token count %d\n",token_count);
-    printf("demo..........");
 
     inode_type *curr_inode = NULL;
     inode_type *previous_inode = get_inode_by_number(1);
@@ -679,7 +678,6 @@ unsigned int cpin_handle(char *external_file, char *v6_file){
             printf("adding direcctory in parent for %s\n", file_tokens[i]);
             add_directory_to_inode(previous_inode, file_tokens[i], current_inode_no);
 
-            printf("previous inode flags: %d\n", previous_inode->flags);
 
             write_inode(previous_inode, previous_inode_no - 1);
 
@@ -793,8 +791,6 @@ unsigned int cout_handle(char *external_file, char *v6_file){
 
     // for the last token or file.
     current_inode_no = get_inode_no_for_directory(previous_inode, file_tokens[token_count - 1]);
-    printf("Dir inode number: %d\n", previous_inode_no);
-    printf("File inode number: %d\n", current_inode_no);
     if(current_inode_no != 0){
         printf("File exists. copying it!!\n");
         FILE *f = fopen(external_file, "wb");
@@ -835,6 +831,7 @@ unsigned int cout_handle(char *external_file, char *v6_file){
 
 
 void makedir(char *directory_Path) {
+    printf("Creating Directory : %s\n", directory_Path);
     int inode_count;
 
     inode_count = make_directory(directory_Path);//  FILE_TYPE_DIRECTORY deleted
@@ -852,12 +849,8 @@ unsigned int fetchNextBlockNumverFilled(inode_type *inode){
 unsigned int check_dir(char *directory_Path){
     int token_count = 0;
     
-    printf("V6 File: %s\n", directory_Path);
-
-    
     char **file_tokens = tokenize_file_path(directory_Path, &token_count, 40);
 
-    printf("token count %d\n",token_count);
 
     inode_type *curr_inode = NULL;
     inode_type *previous_inode = get_inode_by_number(1);
@@ -887,14 +880,8 @@ unsigned int check_dir(char *directory_Path){
 }
 
 unsigned int make_directory(char *directory_Path){
-    int token_count = 0;
-    
-    printf("V6 File: %s\n", directory_Path);
-
-    
+    int token_count = 0;    
     char **file_tokens = tokenize_file_path(directory_Path, &token_count, 40);
-
-    printf("token count %d\n",token_count);
 
     inode_type *curr_inode = NULL;
     inode_type *previous_inode = get_inode_by_number(1);
@@ -926,7 +913,6 @@ unsigned int make_directory(char *directory_Path){
             printf("adding direcctory in parent for %s\n", file_tokens[i]);
             add_directory_to_inode(previous_inode, file_tokens[i], current_inode_no);
 
-            printf("previous inode flags: %d\n", previous_inode->flags);
 
             write_inode(previous_inode, previous_inode_no - 1);
 
@@ -939,7 +925,7 @@ unsigned int make_directory(char *directory_Path){
         previous_inode = curr_inode;
         previous_inode_no = current_inode_no;
     }
-    return 0;
+    return curr_inode;
 }
 
 
@@ -1070,12 +1056,10 @@ int delete_a_file(superblock_type *sb, char *file_path){
     unsigned int previous_inode_no = 1;
 
     char **file_tokens = tokenize_file_path(file_path, token_count, 40); //why max token is 40
-    printf("token count %d\n",token_count);
 
 
     for(int i=0; i<token_count-1; i++){
         current_inode_no = get_inode_no_for_directory(previous_inode, file_tokens[i]);
-        printf("\n inode count %d\n", current_inode_no);
         
         if(current_inode_no==0){
             if(curr_inode != NULL){
@@ -1086,7 +1070,6 @@ int delete_a_file(superblock_type *sb, char *file_path){
         }
 
         curr_inode = get_inode_by_number(current_inode_no); //need to check 
-        printf("\n inode %d\n", curr_inode);
 
         free(previous_inode);
         previous_inode = curr_inode;
@@ -1094,7 +1077,6 @@ int delete_a_file(superblock_type *sb, char *file_path){
     }
 
     current_inode_no = get_inode_no_for_directory(previous_inode, file_tokens[token_count-1]);
-    printf("\n 2. inode count %d\n", current_inode_no);
 
     if(current_inode_no==0){
         free(previous_inode);
@@ -1117,7 +1099,7 @@ int main(int argc, char *argv[])
     signal(SIGINT, SIG_IGN);
     char *parser, cmd[512];
     unsigned int bno = 0, inode_block_count = 0;
-    char file_path[200];
+    char file_path[MAX_PATH_SIZE];
     char *filename;
     char *external_file, * v6_file;
     char *num1, *num2;
@@ -1206,19 +1188,20 @@ int main(int argc, char *argv[])
         }
         else if (strcmp(parser, "cd") == 0)
         {
+            char normalized_file[MAX_PATH_SIZE];
+            
             v6_file = strtok(NULL, " "); 
             v6_file = normalize_file(v6_file);
-
-            if (v6_file[sizeof(v6_file)-1] != '/'){
-                strcat(v6_file, slash);
-            }
-
+            strcpy(normalized_file, v6_file);
             unsigned int direc_flag = check_dir(v6_file);
 
+
             if (direc_flag != 1){
-                // TODO: check if dir exists
-                strcpy(current_file, v6_file);
-                printf("Current directory now at: %s", current_file);
+                strcpy(current_file, normalized_file);
+                if (current_file[sizeof(current_file)-1] != '/'){
+                    strcat(current_file, slash);
+                }
+                printf("Current directory now at: %s\n", current_file);
             }
             // free(v6_file); 
         }
