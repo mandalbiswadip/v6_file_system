@@ -66,15 +66,14 @@ int f_des ;		//file descriptor
 int init_help(char *parameters);
 int initfs(char* path, unsigned short total_blcks,unsigned short total_inodes);
 void create_root();
-
 // copy in and copy out
 int copyIn(char *parameters);
 int copyOut(char *parameters);
 
-char currDirPath[80];           // current working path in v6 file system
+char cur_dir[80];           // current working path in v6 file system
 
 // mkdir functions
-unsigned int createDir(char *parameters);
+unsigned int create_directory(char *parameters);
 unsigned short addDir(unsigned short num_dir_inode_addr, unsigned short dir_pos_in_data_blcok, char *newDirName);
 
 // functions related to remove 
@@ -88,14 +87,14 @@ void show_fl_dir();
 
 // functions that support main functions
 void edit_fl_name(char *parameters);
-void showSuper();
-void readSuper();
-void readDirInode(unsigned short entry);
-void readFileInode(unsigned short entry);
+void display_super();
+void load_super_info();
+void load_dir_inode(unsigned short entry);
+void load_fileI_node(unsigned short entry);
 unsigned short getFreeInode();
-void add_to_inode_list(unsigned short inode_entry);
+void apend_inode_list(unsigned short inode_entry);
 unsigned int getFreeBlock();
-void add_block_to_free_list( int blocknumber , unsigned int *empty_buffer);
+void add_fblock_list( int blocknumber , unsigned int *empty_buffer);
 
 /**********************************************************************************************************/
 /* main execution function */
@@ -103,13 +102,13 @@ int main() {
  
   char input[INPUT_ARRAY];
   char *splitter;
-  unsigned int numBlocks = 0, numInodes = 0;
+  unsigned int total_block = 0, total_nodes = 0;
   char *filepath;
   printf("Size of super block = %d , size of i-node = %d\n",sizeof(superBlock),sizeof(dirInode));
   printf("");
   while(1) {
     printf("\nEnter command or 'help' for command instruction:\n");
-    printf(currDirPath);
+    printf(cur_dir);
     printf("\n");
     printf("-$ ");
 
@@ -173,7 +172,7 @@ int main() {
       }
 
       splitter = strtok(NULL, " ");
-      if(createDir(splitter))
+      if(create_directory(splitter))
         printf("\nDirectory successfully created!\n");
       splitter = NULL;
 
@@ -196,7 +195,7 @@ int main() {
         printf("Choose a v6-file system by entering filename of it using command: v6Name <filename>\n");
         continue;
       }
-
+      
       show_fl_dir();
 
       splitter = NULL;
@@ -230,23 +229,26 @@ void edit_fl_name(char *parameters){
   * Read the superBlock info in the corresponding v6 file system
   */
 
-  int i,j;
+  int i = 0;
+  int j = 0;
   
-  if (currDirPath != NULL)
-    memset(currDirPath, 0, strlen(currDirPath));
+  if (cur_dir != NULL)
+    memset(cur_dir, 0, strlen(cur_dir));
 
-  for (i = 0; i < MAX_FILE_TOKENS; i++){
+  while (i < MAX_FILE_TOKENS){
     if (parameters[i] == '\0'){
       j = i;
-      currDirPath[j] = ':';
-      currDirPath[++j] = '/';
+      cur_dir[j] = ':';
+      cur_dir[++j] = '/';
 
       for (j = i; j < MAX_FILE_TOKENS; j++)
         v6FileName[j] = '\0';
+      i = i +1;
       break;
     }
     v6FileName[i] = parameters[i];
-    currDirPath[i] = parameters[i];
+    cur_dir[i] = parameters[i];
+    i = i +1;
   }
 
   if((f_des = open(v6FileName,O_RDWR,0700))== -1) {
@@ -257,12 +259,12 @@ void edit_fl_name(char *parameters){
 
   printf("The current v6 file path (name) is %s\n",v6FileName);
   
-  readSuper();
-  showSuper();
-  readDirInode(1);
+  load_super_info();
+  display_super();
+  load_dir_inode(1);
 }
 
-unsigned int createDir(char *parameters){
+unsigned int create_directory(char *parameters){
   /*
   * Recursive function until parameters == NULL
   * check the existence of each file and get the necessary parameters
@@ -270,31 +272,31 @@ unsigned int createDir(char *parameters){
   * go to addDir(...) for each directory creation
   */
 
-  // dirInode is corresponding to currDirPath
+  // dirInode is corresponding to cur_dir
   
-  char *dir_name;
-  dir_name = strtok_r(NULL, "/", &parameters);
-  if(strlen(dir_name) > MAX_FILE_TOKENS){
+  char *dir_path;
+  dir_path = strtok_r(NULL, "/", &parameters);
+  if(strlen(dir_path) > MAX_FILE_TOKENS){
     printf("Directory names cannot exceed 14 characters");
     return 0;
   }
   if (parameters != NULL && parameters[0]=='\0')
     parameters = NULL;
   /*printf("commands: %s\n",parameters);
-  printf("Executing directory name: %s\n",dir_name);
+  printf("Executing directory name: %s\n",dir_path);
   printf("Left commands: %s\n\n",parameters);*/
   
   // go to current directory
-  char existFilename[MAX_FILE_TOKENS];
-  unsigned short countDir = 2;          // used to jump to the next dirInode.addr[] data block
+  char exist_file[MAX_FILE_TOKENS];
+  unsigned short total_dir = 2;          // used to jump to the next dirInode.addr[] data block
   unsigned short num_dir_inode_addr = 0;
 
-  lseek(f_des, dirInode.addr[num_dir_inode_addr]*BLOCK_SIZE+countDir*16, 0);
+  lseek(f_des, dirInode.addr[num_dir_inode_addr]*BLOCK_SIZE+total_dir*16, 0);
   read(f_des, &dir_inode_entry, 2);
-  read(f_des, existFilename, MAX_FILE_TOKENS);
+  read(f_des, exist_file, MAX_FILE_TOKENS);
 
-  while(existFilename[0] != '\0'){
-    if (strcmp(existFilename, dir_name) == 0){
+  while(exist_file[0] != '\0'){
+    if (strcmp(exist_file, dir_path) == 0){
       unsigned short flag;
       lseek(f_des, 2*BLOCK_SIZE+(dir_inode_entry-1)*INODE_SIZE,0);
       read(f_des,&flag,2);
@@ -307,39 +309,41 @@ unsigned int createDir(char *parameters){
       }
     }
 
-    lseek(f_des, dirInode.addr[num_dir_inode_addr]*BLOCK_SIZE + (++countDir)*16, SEEK_SET);
+    lseek(f_des, dirInode.addr[num_dir_inode_addr]*BLOCK_SIZE + (++total_dir)*16, SEEK_SET);
     
-    if (countDir == BLOCK_SIZE / 16){
+    if (total_dir == BLOCK_SIZE / 16){
       // only when number of data blocks > 1
-      countDir = 0;
+      total_dir = 0;
       lseek(f_des, dirInode.addr[++num_dir_inode_addr]*BLOCK_SIZE, SEEK_SET);
     }
 
     read(f_des, &dir_inode_entry, 2);
-    read(f_des, existFilename, MAX_FILE_TOKENS);
+    read(f_des, exist_file, MAX_FILE_TOKENS);
   }
 
-  if (existFilename[0] != '\0')
-    printf("\nFile directory %s already exist\n", dir_name);
+  if (exist_file[0] != '\0')
+    printf("\nFile directory %s already exist\n", dir_path);
   else{ 
-    dir_inode_entry = addDir(num_dir_inode_addr, countDir, dir_name);
-    //printf("\nNew file directory %s is created, inode-entry: %hu\n", dir_name, dir_inode_entry);
+    dir_inode_entry = addDir(num_dir_inode_addr, total_dir, dir_path);
+    //printf("\nNew file directory %s is created, inode-entry: %hu\n", dir_path, dir_inode_entry);
   }
-  readDirInode(dir_inode_entry);    // load the directory inode information for the next createDir call
+  load_dir_inode(dir_inode_entry);    // load the directory inode information for the next create_directory call
   
-  // Add on to the currDirPath
-  unsigned short L1 = strlen(currDirPath), L2 = strlen(dir_name),i;
-  for (i = 0; i < L2; i++){
-    currDirPath[i+L1] = dir_name[i];
+  // Add on to the cur_dir
+  unsigned short L1 = strlen(cur_dir), L2 = strlen(dir_path);
+  short i = 0;
+  while (i < L2){
+    cur_dir[i+L1] = dir_path[i];
+    i = i+1;
   }
 
-  currDirPath[L1+L2] = '/';
+  cur_dir[L1+L2] = '/';
 
   lseek(f_des, BLOCK_SIZE, SEEK_SET);
   write(f_des, &superBlock, BLOCK_SIZE);
   
   if (parameters != NULL)
-    return createDir(parameters);
+    return create_directory(parameters);
 
   return 1;
 }
@@ -351,20 +355,22 @@ unsigned short addDir(unsigned short num_dir_inode_addr, unsigned short dir_pos_
   * Add a new directory entry (16 bytes) in its parent data block
   */
   unsigned int new_data_block;
-  int i;
+  
   
   dir_type new_dir;
   new_dir.inode = getFreeInode();   // get available inode number.
   if (new_dir.inode == -1)
     return 0;
-
+  int i = 0;
   // wrtie on the parent data block
-  for (i = 0; i < MAX_FILE_TOKENS; i++){
+  while (i < MAX_FILE_TOKENS){
     if (newDirName[i] == '\0'){
       new_dir.filename[i] = '\0';
+      i = i + 1;
       break;
-    }
+    }    
     new_dir.filename[i] = newDirName[i];
+    i = i + 1;
   }
   
   unsigned int par_Inode;
@@ -444,17 +450,17 @@ unsigned int removeFile(char *rmFileName){
   }
   
   /*** go to the current directory path to check if v6 file exist, if file not exist, abort ***/
-  char existFilename[MAX_FILE_TOKENS];
-  unsigned short countDir = 2;          // start from the 3rd file
+  char exist_file[MAX_FILE_TOKENS];
+  unsigned short total_dir = 2;          // start from the 3rd file
   unsigned short num_dir_inode_addr = 0;
   unsigned short rm_file_inode_entry;
 
   lseek(f_des, dirInode.addr[num_dir_inode_addr]*BLOCK_SIZE+32, 0);
   read(f_des, &rm_file_inode_entry, 2);
-  read(f_des, existFilename, MAX_FILE_TOKENS);
+  read(f_des, exist_file, MAX_FILE_TOKENS);
 
-  while(existFilename[0] != '\0'){
-    if (strcmp(existFilename, rmFileName) == 0){
+  while(exist_file[0] != '\0'){
+    if (strcmp(exist_file, rmFileName) == 0){
       unsigned short flag;
       lseek(f_des, 2*BLOCK_SIZE+(rm_file_inode_entry-1)*INODE_SIZE,0);
       read(f_des,&flag,2);
@@ -468,50 +474,50 @@ unsigned int removeFile(char *rmFileName){
         if (file_entry != 0){
           printf("But the directory is not empty. Can't be deleted! Keep finding...\n");
         } else {
-          readFileInode(rm_file_inode_entry);
+          load_fileI_node(rm_file_inode_entry);
           rm_empty_dir();
           break;
         }
       } else {
         printf("\nDeleted file type is a plain file!\n");
-        readFileInode(rm_file_inode_entry);
+        load_fileI_node(rm_file_inode_entry);
         rmPlainFile();
         break;
       }
     }
     
-    lseek(f_des, dirInode.addr[num_dir_inode_addr]*BLOCK_SIZE + (++countDir)*16, SEEK_SET);
+    lseek(f_des, dirInode.addr[num_dir_inode_addr]*BLOCK_SIZE + (++total_dir)*16, SEEK_SET);
 
-    if (countDir == BLOCK_SIZE / 16){
+    if (total_dir == BLOCK_SIZE / 16){
       // only when number of data blocks > 1
-      countDir = 0;
+      total_dir = 0;
       lseek(f_des, dirInode.addr[++num_dir_inode_addr]*BLOCK_SIZE, SEEK_SET);
     }
 
     read(f_des, &rm_file_inode_entry, 2);
-    read(f_des, existFilename, MAX_FILE_TOKENS);
+    read(f_des, exist_file, MAX_FILE_TOKENS);
   }
 
-  if (existFilename[0] == '\0'){
+  if (exist_file[0] == '\0'){
     printf("\nCorresponding file is not found!\n");
     return 0;
   }
 
   // free the inode entry
-  add_to_inode_list(rm_file_inode_entry);
+  apend_inode_list(rm_file_inode_entry);
 
   // delete the directory type (16 bytes) in parent directory and move one directory ahead after it
   unsigned int i,buffer[4];
   for (i = 0; i < 4; i++)
     buffer[i] = 0;
-  lseek(f_des, dirInode.addr[num_dir_inode_addr]*BLOCK_SIZE + countDir*16, SEEK_SET);
+  lseek(f_des, dirInode.addr[num_dir_inode_addr]*BLOCK_SIZE + total_dir*16, SEEK_SET);
   write(f_des, buffer, 16);
 
   dir_type tmp_dir;
   read(f_des, &tmp_dir.inode, 2);
   read(f_des, tmp_dir.filename, MAX_FILE_TOKENS);
   while (tmp_dir.inode != 0){
-    lseek(f_des, dirInode.addr[num_dir_inode_addr]*BLOCK_SIZE + (countDir++)*16, SEEK_SET);
+    lseek(f_des, dirInode.addr[num_dir_inode_addr]*BLOCK_SIZE + (total_dir++)*16, SEEK_SET);
     write(f_des, &tmp_dir, 16);
     write(f_des, buffer, 16);
     read(f_des, &tmp_dir.inode, 2);
@@ -528,7 +534,7 @@ void rm_empty_dir(){
   unsigned int i,buffer[BLOCK_SIZE/4];
   for (i = 0; i < BLOCK_SIZE/4; i++) 
     buffer[i] = 0;
-  add_block_to_free_list(fileInode.addr[0], buffer);
+  add_fblock_list(fileInode.addr[0], buffer);
 
   // save superblock to system
   lseek(f_des, BLOCK_SIZE, SEEK_SET);
@@ -545,7 +551,7 @@ void rmPlainFile(){
 
   for (i = 0; i < ADDRESSES_SIZE; i++){
     if (fileInode.addr[i] != 0)
-      add_block_to_free_list(fileInode.addr[i],buffer);
+      add_fblock_list(fileInode.addr[i],buffer);
   }
 
   // save superblock to system
@@ -555,15 +561,15 @@ void rmPlainFile(){
 
 unsigned int change_dir(char *parameters){
   /*
-  * change the global variable "currDirPath"
+  * change the global variable "cur_dir"
   * support cd .././.. or /user/dir1/dir2
   */
   if (parameters == NULL)
     return 1;
   
-  char *dir_name, existFilename[MAX_FILE_TOKENS], copySys[15];
-  dir_name = strtok_r(NULL, "/", &parameters);
-  if(strlen(dir_name) > MAX_FILE_TOKENS){
+  char *dir_path, exist_file[MAX_FILE_TOKENS], copySys[15];
+  dir_path = strtok_r(NULL, "/", &parameters);
+  if(strlen(dir_path) > MAX_FILE_TOKENS){
     printf("Directory names cannot exceed 14 characters");
     return 0;
   }
@@ -571,13 +577,13 @@ unsigned int change_dir(char *parameters){
     parameters = NULL;
   
   /*printf("commands: %s\n",parameters);
-  printf("Executing directory name: %s\n",dir_name);
+  printf("Executing directory name: %s\n",dir_path);
   printf("Left commands: %s\n\n",parameters);*/
 
   unsigned short tmp_dir_inode_entry = dir_inode_entry;
   
   strcpy(copySys,v6FileName);
-  if (strcmp(strcat(copySys,":"), dir_name) == 0){
+  if (strcmp(strcat(copySys,":"), dir_path) == 0){
 
     // if the directory is the system name, it starts from root 
     edit_fl_name(v6FileName);
@@ -588,47 +594,47 @@ unsigned int change_dir(char *parameters){
   } else {
 
     // go to current directory
-    unsigned short countDir = 0;          // used to jump to the next dirInode.addr[] data block
+    unsigned short total_dir = 0;          // used to jump to the next dirInode.addr[] data block
     unsigned short num_dir_inode_addr = 0;
 
     lseek(f_des, dirInode.addr[num_dir_inode_addr]*BLOCK_SIZE+2, 0);
-    read(f_des, existFilename, MAX_FILE_TOKENS);
+    read(f_des, exist_file, MAX_FILE_TOKENS);
 
-    while(existFilename[0] != '\0'){
-      if (strcmp(existFilename, dir_name) == 0){
+    while(exist_file[0] != '\0'){
+      if (strcmp(exist_file, dir_path) == 0){
         unsigned short flag;
         lseek(f_des, 2*BLOCK_SIZE+(dir_inode_entry-1)*INODE_SIZE,0);
         read(f_des,&flag,2);
         if(flag >= (inode_alloc | dir_flag)){
           printf("\nFilename of the v6-directory is found!\n");
-          readDirInode(dir_inode_entry);
+          load_dir_inode(dir_inode_entry);
 
-          if (strcmp(dir_name, ".") == 0) // directory itself, do nothing
+          if (strcmp(dir_path, ".") == 0) // directory itself, do nothing
             break;
-          else if (strcmp(dir_name, "..") == 0){
+          else if (strcmp(dir_path, "..") == 0){
             // parent directory
-            unsigned short L = strlen(currDirPath),i;
-            currDirPath[L-1] = '\0';
+            unsigned short L = strlen(cur_dir),i;
+            cur_dir[L-1] = '\0';
             for (i = L-2; i >= 0; i--){
-              if (currDirPath[i] == '/')
+              if (cur_dir[i] == '/')
                 break;
-              else if (currDirPath[i] == ':'){
-                currDirPath[i+1] = '/';
+              else if (cur_dir[i] == ':'){
+                cur_dir[i+1] = '/';
                 break;
               }
-              currDirPath[i] = '\0';
+              cur_dir[i] = '\0';
             }
 
             break;
           }
 
-          // Add on to the currDirPath
-          unsigned short L1 = strlen(currDirPath), L2 = strlen(dir_name),i;
+          // Add on to the cur_dir
+          unsigned short L1 = strlen(cur_dir), L2 = strlen(dir_path),i;
           for (i = 0; i < L2; i++){
-            currDirPath[i+L1] = dir_name[i];
+            cur_dir[i+L1] = dir_path[i];
           }
 
-          currDirPath[L1+L2] = '/';
+          cur_dir[L1+L2] = '/';
 
           break;
         }
@@ -637,20 +643,20 @@ unsigned int change_dir(char *parameters){
         }
       }
       
-      lseek(f_des, dirInode.addr[num_dir_inode_addr]*BLOCK_SIZE + (++countDir)*16, SEEK_SET);
+      lseek(f_des, dirInode.addr[num_dir_inode_addr]*BLOCK_SIZE + (++total_dir)*16, SEEK_SET);
 
-      if (countDir == BLOCK_SIZE / 16){
+      if (total_dir == BLOCK_SIZE / 16){
         // when number of data blocks > 1
-        countDir = 0;
+        total_dir = 0;
         lseek(f_des, dirInode.addr[++num_dir_inode_addr]*BLOCK_SIZE, SEEK_SET);
       }
 
       read(f_des, &dir_inode_entry, 2);
-      read(f_des, existFilename, MAX_FILE_TOKENS);
+      read(f_des, exist_file, MAX_FILE_TOKENS);
     }
 
-    if (existFilename[0] == '\0' || !change_dir(parameters)){
-      readDirInode(tmp_dir_inode_entry);
+    if (exist_file[0] == '\0' || !change_dir(parameters)){
+      load_dir_inode(tmp_dir_inode_entry);
       return 0;
     }
   
@@ -664,22 +670,22 @@ void show_fl_dir(){
   * display all the files (including directory and plain files in current directory)
   */
 
-  char existFilename[MAX_FILE_TOKENS];
-  unsigned short countDir = 2;          // start from the 3rd file
+  char exist_file[MAX_FILE_TOKENS];
+  unsigned short total_dir = 2;          // start from the 3rd file
   unsigned short num_dir_inode_addr = 0;
   unsigned short tmp_inode_entry;
 
   lseek(f_des, dirInode.addr[num_dir_inode_addr]*BLOCK_SIZE+32, 0);
   read(f_des, &tmp_inode_entry, 2);
-  read(f_des, existFilename, MAX_FILE_TOKENS);
+  read(f_des, exist_file, MAX_FILE_TOKENS);
 
-  while(existFilename[0] != '\0'){
-    if (countDir%4 == 2)
+  while(exist_file[0] != '\0'){
+    if (total_dir%4 == 2)
       printf("\n");
 
-    if (countDir == BLOCK_SIZE / 16){
+    if (total_dir == BLOCK_SIZE / 16){
       // when number of data blocks > 1
-      countDir = 0;
+      total_dir = 0;
       lseek(f_des, dirInode.addr[++num_dir_inode_addr]*BLOCK_SIZE, SEEK_SET);
     }
     
@@ -687,16 +693,16 @@ void show_fl_dir(){
     lseek(f_des, 2*BLOCK_SIZE+(tmp_inode_entry-1)*INODE_SIZE,0);
     read(f_des,&flag,2);
     if(flag >= (inode_alloc | dir_flag)){
-      printf("%s(dir type)    ",existFilename);
+      printf("%s(dir type)    ",exist_file);
     }
     else {
-      printf("%s    ",existFilename);
+      printf("%s    ",exist_file);
     }
     
-    lseek(f_des, dirInode.addr[num_dir_inode_addr]*BLOCK_SIZE+(++countDir)*16, 0);
+    lseek(f_des, dirInode.addr[num_dir_inode_addr]*BLOCK_SIZE+(++total_dir)*16, 0);
 
     read(f_des, &tmp_inode_entry, 2);
-    read(f_des, existFilename, MAX_FILE_TOKENS);
+    read(f_des, exist_file, MAX_FILE_TOKENS);
   }
 
 }
@@ -708,7 +714,7 @@ int init_help(char *parameters){
   */
 
   char *n1, *n2;
-  unsigned int numBlocks = 0, numInodes = 0;
+  unsigned int total_block = 0, total_nodes = 0;
   char *filepath;
   
   parameters = strtok(NULL, " ");
@@ -733,10 +739,10 @@ int init_help(char *parameters){
         printf(" All arguments(path, number of inodes and total number of blocks) have not been entered\n");
       
     else {
-        numBlocks = atoi(n1);
-        numInodes = atoi(n2);
+        total_block = atoi(n1);
+        total_nodes = atoi(n2);
         
-        if( initfs(filepath, numBlocks, numInodes )){
+        if( initfs(filepath, total_block, total_nodes )){
           char *systemName = strrchr(filepath, '/');
           edit_fl_name(filepath);
           printf("The file system is initialized\n");	
@@ -804,7 +810,7 @@ int initfs(char* path, unsigned short blocks,unsigned short inodes) {
   create_root();
 
   for ( i = 0; i < data_blocks_for_free_list; i++ ) {
-    add_block_to_free_list(i + 2 + superBlock.isize + 1, buffer);
+    add_fblock_list(i + 2 + superBlock.isize + 1, buffer);
   }
   
   lseek(f_des, BLOCK_SIZE, SEEK_SET);
@@ -813,7 +819,7 @@ int initfs(char* path, unsigned short blocks,unsigned short inodes) {
   return 1;
 }
 
-void add_block_to_free_list(int block_number,  unsigned int *empty_buffer){
+void add_fblock_list(int block_number,  unsigned int *empty_buffer){
   /* 
   * Add Data blocks to free list 
   * change nfree and free in superBlock simultaneously
@@ -890,7 +896,7 @@ void create_root() {
  
 }
 
-void showSuper(){
+void display_super(){
   /*
    * display the superBlock info
   */
@@ -910,7 +916,7 @@ void showSuper(){
 }
 
 
-void readSuper(){
+void load_super_info(){
   /*
    * load the superBlock info
   */
@@ -929,7 +935,7 @@ void readSuper(){
   read(f_des, &superBlock.time, 2*2);
 }
 
-void readDirInode(unsigned short entry){
+void load_dir_inode(unsigned short entry){
   /*
    * load the directory I-node info according to the I-node number
   */
@@ -948,7 +954,7 @@ void readDirInode(unsigned short entry){
   dir_inode_entry = entry;
 }
 
-void readFileInode(unsigned short entry){
+void load_fileI_node(unsigned short entry){
   /*
    * load the file I-node info according to the I-node number
   */
@@ -965,7 +971,7 @@ void readFileInode(unsigned short entry){
 
 }
 
-void add_to_inode_list(unsigned short inode_entry){
+void apend_inode_list(unsigned short inode_entry){
   /*
   * This function is responsible for deleting inode and adding free inode entry to superblock
   */
@@ -1020,7 +1026,7 @@ unsigned int getFreeBlock(){
     return superBlock.free[--superBlock.nfree];
     
     // free the block originally contain indexes of free blocks
-    // add_block_to_free_list(index_data_block, buffer) 
+    // add_fblock_list(index_data_block, buffer) 
     
   }
 
@@ -1093,21 +1099,21 @@ int copyIn(char *parameters) {
   }
   
   // load the superblock data
-  readSuper();
+  load_super_info();
   
   // go to first data block to see if the v6-filename already exist (future improvement: handle number of root data blocks > 1)
-  char existFilename[MAX_FILE_TOKENS];
+  char exist_file[MAX_FILE_TOKENS];
   unsigned short file_entry;
-  unsigned int countDir = 0;            // used ti jump to the next dirInode.addr[] data block adn track the position in current data block
+  unsigned int total_dir = 0;            // used ti jump to the next dirInode.addr[] data block adn track the position in current data block
   unsigned short num_dir_inode_addr = 0;
 
   lseek(f_des, dirInode.addr[num_dir_inode_addr]*BLOCK_SIZE, 0);
   read(f_des, &file_entry, 2);
-  read(f_des, existFilename, MAX_FILE_TOKENS);
+  read(f_des, exist_file, MAX_FILE_TOKENS);
   
-  while(existFilename[0] != '\0'){
-    //printf("Existing filename: %s\n",existFilename);
-    if (strcmp(existFilename, vFile) == 0){
+  while(exist_file[0] != '\0'){
+    //printf("Existing filename: %s\n",exist_file);
+    if (strcmp(exist_file, vFile) == 0){
       unsigned short flag;
       lseek(f_des, 2*BLOCK_SIZE+(file_entry-1)*INODE_SIZE,0);
       read(f_des,&flag,2);
@@ -1120,16 +1126,16 @@ int copyIn(char *parameters) {
       }
     }
 
-    lseek(f_des, dirInode.addr[num_dir_inode_addr]*BLOCK_SIZE + (++countDir)*16, 0);
+    lseek(f_des, dirInode.addr[num_dir_inode_addr]*BLOCK_SIZE + (++total_dir)*16, 0);
 
-    if (countDir == BLOCK_SIZE / 16){
+    if (total_dir == BLOCK_SIZE / 16){
       // only when number of data blocks > 1
-      countDir = 0;
+      total_dir = 0;
       lseek(f_des, dirInode.addr[++num_dir_inode_addr]*BLOCK_SIZE, SEEK_SET);
     }
 
     lseek(f_des, 2, SEEK_CUR);
-    read(f_des, existFilename, MAX_FILE_TOKENS);
+    read(f_des, exist_file, MAX_FILE_TOKENS);
   }
 
   // open the external file and check if exist
@@ -1203,7 +1209,7 @@ int copyIn(char *parameters) {
   }
 
   // modify the i-node of the directory (specifically only its addr, because the number of file in the root could be larger than 64)
-  if (countDir == 0){
+  if (total_dir == 0){
     // the current root data block happens to be full, get the new free block for directory
     // num_dir_inode_addr: current number of full data blocks that belongs to the directory
     // update Inode of the directory
@@ -1220,7 +1226,7 @@ int copyIn(char *parameters) {
     // locate dirInode.addr[num_dir_inode_addr]
     // update data block of the directory
 
-    lseek(f_des, dirInode.addr[num_dir_inode_addr]*BLOCK_SIZE+countDir*16, 0);
+    lseek(f_des, dirInode.addr[num_dir_inode_addr]*BLOCK_SIZE+total_dir*16, 0);
     write(f_des, &vFile_dir, 16);
   }
   
@@ -1300,23 +1306,23 @@ int copyOut(char *parameters) {
   }
   
   // load the superblock data
-  readSuper();
+  load_super_info();
 
   // go to first data block to see if the v6-filename exist
-  char existFilename[MAX_FILE_TOKENS];
+  char exist_file[MAX_FILE_TOKENS];
   
   unsigned short file_inode_entry;
-  unsigned short countDir = 0;          // used to jump to the next dirInode.addr[] data block
+  unsigned short total_dir = 0;          // used to jump to the next dirInode.addr[] data block
   unsigned short num_dir_inode_addr = 0;
   
-  readDirInode(dir_inode_entry);
+  load_dir_inode(dir_inode_entry);
 
   lseek(f_des, dirInode.addr[num_dir_inode_addr]*BLOCK_SIZE + 2, 0);
-  read(f_des, existFilename, MAX_FILE_TOKENS);
+  read(f_des, exist_file, MAX_FILE_TOKENS);
 
-  while(existFilename[0] != '\0'){
-    //printf("Existing filename: %s\n",existFilename);
-    if (strcmp(existFilename, vFile) == 0){
+  while(exist_file[0] != '\0'){
+    //printf("Existing filename: %s\n",exist_file);
+    if (strcmp(exist_file, vFile) == 0){
       unsigned short flag;
       lseek(f_des, 2*BLOCK_SIZE+(file_inode_entry-1)*INODE_SIZE,0);
       read(f_des,&flag,2);
@@ -1329,20 +1335,20 @@ int copyOut(char *parameters) {
       }
     }
 
-    lseek(f_des, dirInode.addr[num_dir_inode_addr]*BLOCK_SIZE + (++countDir)*16, 0);
+    lseek(f_des, dirInode.addr[num_dir_inode_addr]*BLOCK_SIZE + (++total_dir)*16, 0);
 
-    if (countDir == BLOCK_SIZE / 16){
+    if (total_dir == BLOCK_SIZE / 16){
       // only when number of data blocks > 1
-      countDir = 0;
+      total_dir = 0;
       lseek(f_des, dirInode.addr[++num_dir_inode_addr]*BLOCK_SIZE, SEEK_SET);
     }
 
     read(f_des, &file_inode_entry, 2);
-    read(f_des, existFilename, MAX_FILE_TOKENS);
+    read(f_des, exist_file, MAX_FILE_TOKENS);
   }
 
   // if no such file name exist in v6 file system, break
-  if (existFilename[0] == '\0'){
+  if (exist_file[0] == '\0'){
     printf("\nFilename of the v6-File is not found! Abort...\n");
     return 0;
   }
@@ -1352,7 +1358,7 @@ int copyOut(char *parameters) {
   extFileDescrt = open(extFilePath,O_RDWR|O_CREAT,0700);
   
   // read the inode entry of the v6-file and get the addr array
-  readFileInode(file_inode_entry);
+  load_fileI_node(file_inode_entry);
 
   // copy the contentinto the new external file
   char ch[1];
