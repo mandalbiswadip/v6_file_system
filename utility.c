@@ -33,7 +33,7 @@ void bytes_to_inode(char *data, inode_type *inode) {
 }
 
 
-void inode_to_bytes(inode_type *inode, uint8_t *data) {
+void inode_to_bytes(inode_type *inode, char *data) {
     memcpy(&data[0], &inode->flags, 2);
     memcpy(&data[2], &inode->nlinks, 2);
     memcpy(&data[4], &inode->uid, 4);

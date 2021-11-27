@@ -17,6 +17,6 @@
 #include <stdbool.h>
 
 void bytes_to_inode(char *data, inode_type *inode);
-void inode_to_bytes(inode_type *inode, uint8_t *data);
+void inode_to_bytes(inode_type *inode, char *data);
 void bytes_to_directory(char *data, dir_type *direc);
 void bytes_to_superblock(char *data, superblock_type *sp);
