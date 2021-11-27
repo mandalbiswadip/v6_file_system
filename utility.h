@@ -1,3 +1,5 @@
+#include "constants.h"
+#include "structs.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -14,7 +16,7 @@
 #include <sys/stat.h>
 #include <stdbool.h>
 
-
-
-
-int handle_command(char *argv[]);
+void bytes_to_inode(char *data, inode_type *inode);
+void inode_to_bytes(inode_type *inode, uint8_t *data);
+void bytes_to_directory(char *data, dir_type *direc);
+void bytes_to_superblock(char *data, superblock_type *sp);

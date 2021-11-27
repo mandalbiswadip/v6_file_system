@@ -1,3 +1,4 @@
+#include "V6filesys_new.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -14,7 +15,11 @@
 #include <sys/stat.h>
 #include <stdbool.h>
 
+int main(int argc, char *argv[]){
+    handle_command(argv);
+    return 0;
+}
 
 
 
-int handle_command(char *argv[]);
+
